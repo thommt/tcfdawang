@@ -1,0 +1,271 @@
+# 项目规格说明（TCF 学习系统）
+
+## 1. 概述
+
+- **目标**：构建一个专注 TCF Canada 口语 Tache 2 / Tache 3 的学习与题库管理系统，支持 Web 前端，后端以 FastAPI 为核心，LangChain 负责与 OpenAI LLM 交互。
+- **运行栈**：Python（使用 `uv` 管理依赖）、FastAPI + Pydantic、SQLite（可替换 PostgreSQL）、LangChain、Vue 前端。
+- **部署形态**：首阶段以本地/自托管为主，支持将来容器化；默认 SQLite 嵌入式数据库，保留 PostgreSQL 兼容层。
+
+## 2. 范围与非目标
+
+### 2.1 功能范围
+1. **题目管理**
+   - CRUD 表单（来源、年/月、套题、题号、题型 T2/T3、标题、详情、任意标签）。
+   - CSV 导入（同来源+年+月+套题+题号唯一；重复时执行更新）。
+2. **学习流程**
+   - 选题 → 用户作答 → LLM 多轮评估/反馈 → 确认最终答案 → LLM 拆解 & 构建篇章结构 → 句子/短语抽认卡学习。
+   - 复习时比较主旨/结构，自动判断是否建立新答案；若沿用原主旨，则标注不足并生成 i+1 版本，再进入学习模式。
+3. **篇章结构与句子管理**
+   - 答案拆解为段落、语块、句子；句子带中英翻译。
+   - 可选触发句子进一步拆分短语/单词，并记录对应翻译。
+   - 将段落/语块关系存为图（顶点/边）以表达篇章逻辑。
+4. **抽认卡训练**
+   - 支持句子级与词块级练习，默认为固定间隔复习策略；未来可替换为真正的间隔重复算法。
+5. **LLM 集成**
+   - LangChain 封装 OpenAI API；定义多个独立 flow：评估反馈、答案标题/标签生成、篇章结构分析、句子拆分、词块拆解、复习时主旨比较与 i+1 生成等。
+6. **前端**
+   - Vue 单页应用：题目管理页面、学习工作台、抽认卡训练界面、答案/句子浏览视图。
+
+### 2.2 非目标（首阶段）
+- 暂不实现用户体系/权限（单人使用假设）。
+- 暂不提供导出功能。
+- 暂不支持浏览器端 IndexedDB、本地离线同步。
+- 无多模型/自托管 LLM 适配（仅 OpenAI）。
+
+### 2.3 非功能性要求
+- **编码规范**：仓库所有文本与源代码文件采用 UTF-8（无 BOM）、LF 换行；在 CI 中加入格式检查。
+- **测试策略**：每个功能自搭建阶段起即配套最小化单元测试/集成测试，遵循 TDD；提交需通过 pytest、前端测试及 LLM mock 流程。
+
+## 3. 系统架构
+
+```
+Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQLite/PostgreSQL
+                                   ↓
+                                 LangChain Orchestrators
+```
+
+- **API 层**：FastAPI 提供 REST（题目管理、学习会话、抽认卡数据、CSV 导入）。必要时使用 WebSocket 推送 LLM 反馈状态。
+- **服务层**：组织业务流程（题目 CRUD、学习流程、篇章拆解、复习判定等），隔离 LLM 调用与数据库事务。
+- **数据访问**：使用 SQLAlchemy/SQLModel，抽象 `Repository` 支持 SQLite 与 PostgreSQL。图结构以顶点/边表落地。
+- **LLM 流程**：LangChain 工程层封装 Prompt、Parser、工具函数。每个流程（评估、结构化等）作为可测试的模块。
+- **前端**：Vue + Vite（或 Nuxt 作为 SPA 模式），调用 REST API；后续可集成组件库（Element Plus / Naive UI）。
+
+## 4. 数据模型（初稿）
+
+| 实体 | 关键字段 |
+| --- | --- |
+| `Question` | id、type(T2/T3)、source、year、month、suite、number、title（LLM/用户生成的简短中文总结）、body、created_at、updated_at |
+| `AnswerGroup` | id、question_id、slug（可读标识）、title（LLM 生成的简短中文总结）、descriptor（对立场/主题/主旨的简短描述，如 support/oppose 或 “math”）、dialogue_profile(json，记录 T2 对话设定：考官设定、考生临时人设、态度、语体、语法难度、提问深度等)、created_at |
+| `Answer` | id、answer_group_id、version_index（最新为最高）、status(active/archived)、text、title、created_at |
+| `Paragraph` | id、answer_id、order_index、summary、role_label（如 intro/body/conclusion 或 T2 的 opening/turn/closing）、semantic_label（可选，用于描述语块主题） |
+| `Sentence` | id、paragraph_id、order_index、text_fr、translation_en、translation_zh, difficulty(optional) |
+| `Lexeme` | id、lemma、sense_label（LLM 生成的简短中文含义）、gloss（详细释义/例句）、pos_tags、translation_en、translation_zh、notes、complexity_level、hash(normalized form + sense_label)、is_manual(是否人工创建/编辑) |
+| `SentenceLexeme` | sentence_id、lexeme_id、order_index、context_note、translation_override? |
+| `Session` | id、question_id、answer_id?、user_answer_draft、session_type(first/review)、status(enum:draft/in_progress/submitted/completed)、progress_state(json，记录反馈轮次、LLM 日志指针等)、started_at、completed_at |
+| `Task` | id、session_id?、answer_id?、type(enum: eval, compose_answer, structure, translate, split_phrase, compare, gap_highlight, refine, …)、status(enum: pending/running/succeeded/failed/canceled)、payload(json)、result_summary(json)、progress(0-1)、error_message、created_at、updated_at、conversation_id? |
+| `LLMConversation` | id、session_id、task_id、purpose(eval/structure/compare/phrase_split等)、messages(json TEXT/JSONB)、result(json TEXT/JSONB)、model_name、latency_ms |
+
+> **LLMConversation 存储**：`messages` 与 `result` 字段需使用大容量类型（SQLite TEXT / PostgreSQL JSONB）以容纳完整对话记录；必要时可启用压缩或归档策略，确保长对话不会截断。`Task` 只记录执行状态与 `conversation_id` 引用，具体 prompt/response 由 `LLMConversation` 保存。
+| `ParagraphGraphNode` | id、answer_id、paragraph_id、label、metadata(json) |
+| `ParagraphGraphEdge` | id、answer_id、from_node_id、to_node_id、relation(enum: support/contrast/example/summary/follow_up/clarification/contain/expand)、metadata(json，可存权重/注释) |
+| `FlashcardProgress` | id、entity_type(sentence/lexeme)、entity_id、last_score、due_at、streak、interval_days |
+| `Favorite` | id、entity_type(answer/paragraph/sentence/lexeme)、entity_id、note、created_at |
+| `QuestionTag` | id、question_id、tag |
+
+> **图结构设计**：段落拆解后，可选地调用结构关系分析任务，生成节点列表（指向 Paragraph）以及边关系（支持 support/contrast/example 等语义）。若用户未触发该分析，则不生成图数据，默认仅使用段落顺序。后续学习场景中可根据 Graph 数据做篇章对比或可视化。
+
+> **答案分组说明**：`descriptor` 字段用来概括答案的主旨或主题——对于需要表态的问题，可取值如 `support`/`oppose`；对于开放题（例如“最喜欢的科目是什么”），则可用 `math`、`physics` 等描述内容的标签。若题目存在多个主旨/结构完全不同的回答，就分别建立 `AnswerGroup(descriptor=…)`。T2 对话还可利用 `dialogue_profile`（例如 `examiner_attitude=stern`、`detail_level=concise`、`user_persona` 来源于全局设置）区分“同主题但不同考官态度/语体/人设”的答案组。
+
+> **Lexeme 拆分说明**：拆分句子时仅在需要的句子上触发 `split_phrase` 任务；LLM 需基于语义成分（如名词短语、动词短语）输出片段，并尽量还原动词原形、过滤极度简单的词。每个片段需附带 `sense_label/gloss`，以区分一词多义场景；`hash` 由 `lemma + sense_label` 组成用于去重。拆出的词/短语通过 `Lexeme` 记录，`SentenceLexeme` 保存顺序与上下文（必要时可覆盖翻译）。前端需显示某句是否已有拆分，并允许手动发起或跳过拆分。
+
+## 5. 关键流程
+
+### 5.1 题目导入
+1. 用户上传 CSV。
+2. FastAPI 解析并验证（Pydantic Schema）。
+3. 对每行：按照唯一键（source, year, month, suite, number）查找现有题目，存在则更新；否则创建。
+4. 记录导入日志并返回统计。
+
+### 5.2 首次学习流程
+1. 用户在前端选择题目，创建 `Session(session_type=first)`。
+2. 用户录入答案（富文本/Markdown），前端调用 `POST /sessions/{id}/answers/draft`。
+3. 服务层调用 LangChain 流程“Answer Evaluation”，执行多轮对话（每轮提供指导、要求用户改进）。该评估通过异步任务（`Task` type=`eval`）完成，`Session.progress_state` 持久化当前轮次、草稿与 LLM 消息，用户可在前端查看任务进度、必要时手动重试。
+4. 用户确认最终答案 → 生成 `AnswerGroup`（若不存在，触发 LLM 生成 title/descriptor）与 `Answer(version_index=1)`。
+5. LangChain 流程分阶段、异步执行（每个阶段对应一个 `Task`）：
+   - **AnswerComposer**（task type=`compose_answer`）：根据题型、风格、难度要求生成自然连贯的法语文本（确保满足词汇/语法/篇章框架约束；T2 需生成考官/考生对话，结合全局 `user_profile` 与临时设定，生成自然的提问、评论、追问，并遵守 `dialogue_profile` 的态度、详尽度、语体设置），输出最终 `Answer.text`。
+   - **StructureExtractor**（`structure`）：在 `Answer` 固化后，再独立调用 LLM 拆解段落→句子→关系，返回 JSON（包括排序、角色、关系，T2 需识别追问链路、角色以及“问/答/追问/评论”类型）。
+   - `GraphBuilder`（`structure_graph`，可选）：从结构 JSON 解析节点与边，写入图表。仅在用户主动触发“篇章图分析”或题目设置要求时运行；默认可跳过，仅保留段落顺序。
+   - `SentenceTranslator`（`translate`）：为每个句子生成中英翻译。
+   - **可选** `PhraseSplitter`（`split_phrase`）：仅在用户请求或句子超过复杂度阈值时触发，按语义成分拆解为短语/词并链接 `Lexeme`；每个句子需记录“已拆分/未拆分”状态，前端可手动切换。
+   - 所有 Task 均进入全局队列异步执行；前端通过任务 API 轮询/订阅进度，用户可离开页面稍后再查看结果；在答案详情页需展示尚未完成/失败的任务，并提供单个任务的重试按钮。
+6. 生成抽认卡初始计划：为句子/短语创建 `FlashcardProgress`，设定固定间隔（如 1/3/7 天）。
+
+### 5.3 复习流程
+1. 用户再次选择题目 → 创建 `Session(session_type=review)`。
+2. 用户提交新答案草稿。
+3. LangChain 流程 `AnswerComparator`（task type=`compare`）对比主旨与结构：
+   - 判断类别：`MAJOR_SHIFT`（主旨或结构变化大） vs `ALIGNED`。
+   - 若 `MAJOR_SHIFT`：提示用户创建新 `AnswerGroup`（不同立场/结构），其 version_index 从 1 开始。
+4. 若 `ALIGNED`：
+   - `GapHighlighter`（task=`gap_highlight`）标出未覆盖段落/句子、语法词汇问题。
+   - `RefinedAnswerGenerator`（task=`refine`）在保持主旨结构的前提下，融合用户新答案亮点生成 `Answer` 的下一版本（version_index +1）。
+5. 触发与首次相同的结构化与抽认卡流程；仅对新/变更句子更新 Flashcard 进度。
+
+### 5.4 抽认卡（固定间隔 mock SRS）
+1. 后端根据 `FlashcardProgress.due_at` 输出今日到期卡片。
+2. 前端支持：
+   - 句子模式：提示中文/英文翻译，用户回答法语。
+   - 词块模式：先练短语/单词，全部完成后再练整句。
+3. 用户提交结果（对/错/困难），后端更新 `streak`、`interval_days`（使用简化表，例如 1→3→7→14→...），同时记录答题日志。
+4. 抽认卡调度可通过后台任务（批量更新 due_at、生成 new cards）运行，避免长事务。
+
+### 5.5 T2 对话结构特例
+1. **固定架构**：每个 T2 答案版本包含：开篇（引导/问候）、若干问答对（`QuestionPrompt` + `Response` + 可选追问/评论）、结尾（告别/总结）。需在 `Paragraph` 中标注 `section_type`/`semantic_label` 以区分这些固定块，并记录对应的角色（考官/考生）、追问层级等信息。
+2. **学习流程调整**：
+   - 在首次与复习阶段，LLM 反馈需遵守对话脚本格式，确保每次迭代都包含完整的问答对。
+   - 结构拆解时，`Paragraph` 需映射至开篇、问答对、结尾等角色；句子关系图可简化为按对话顺序的链式结构，并附加“follow-up”“clarification”等关系，通过 `semantic_label`/metadata 表示具体语块，追踪追问链路。
+   - 抽认卡训练支持“按问答对”模式：先提示对方提问，再要求用户复述回答；必要时加入追问提示以模拟真实对话。
+3. **对话设定**：T2 答案需先调用 `AnswerComposer` 生成自然流畅的双人对话（考官/考生角色、态度、语体、追问方式明确），可结合全局 `user_profile`（从用户设置中获取）与每次会话的临时设定。前端可配置考官态度（友好/严苛）、话题延展度、语法难度等；所选设定写入 `AnswerGroup.dialogue_profile`，以便区分不同 T2 答案组（例如“友好版”“严苛版”“跨文化版”）。
+4. **版本管理**：虽然 T2 结构固定，但仍遵循“答案组 + 多版本”模型；`AnswerComparator` 在判定差异时重点考察问答对数量/内容是否变化，以决定是否生成新答案或升级为 i+1 版本。
+
+### 5.6 后台任务与重试
+1. 所有 LLM 相关步骤（评估、AnswerComposer、结构化、翻译、拆分、比较、Gap 标注等）都生成 `Task` 记录，进入全局任务队列（可选用 Celery/RQ/BackgroundTasks 等实现），确保异步执行，不占用长连接。
+2. 前端需提供“任务中心”与 Answer 详情页的任务面板，展示当前 Answer/Session 的任务列表、状态、进度、最近日志。
+3. 用户可以：
+   - 手动重试单个失败任务（如结构化卡住）。
+   - 补充尚未执行的任务（例如 Answer 已生成但还未翻译，可单独发起 `translate` 任务）。
+   - 取消长时间执行的任务。
+4. API 层需提供创建/重试/取消任务的接口，并保证任务与 Session/Answer 的权限绑定。
+
+### 5.7 收藏与复习配置
+1. 任意 `Answer`、`Paragraph`、`Sentence`、`Lexeme` 都可收藏到 `Favorite` 表；前端在对应视图提供“收藏/取消收藏”操作，并允许填写备注。
+2. `FlashcardProgress.entity_type` 支持 `lexeme`：一旦多个句子引用同一 `Lexeme`，其复习进度共享，避免重复练习。
+3. 当句子未进行拆分时，收藏列表中仍只展示 `Sentence`；拆分后可选择收藏某个语义片段或整体句子。
+4. Question 标签使用 `QuestionTag` 表维护，便于按标签过滤；导入/编辑题目时同步更新该表。
+
+### 5.8 题目抓取（Web UI）
+1. 在题目管理界面提供“抓取题目”对话框，允许用户输入一个或多个 URL（如 reussir-tcfcanada.com）。前端将 URL 列表提交给后端 API（`POST /questions/fetch`），后端基于 `fetch.py` 的解析逻辑执行抓取。
+2. 抓取规则：
+   - 识别 “Tâche / Partie / Sujet” 层级，组合生成唯一 slug（例：`202510.T3.P1S2`）。
+   - 自动解析页面标题中的月份/年份；若缺失可由用户通过界面补充。
+   - 默认将 `tache=2` 归类为 T2，`tache=3` 为 T3；其它值可忽略或显示警告。
+3. 提交抓取任务后，后端创建 `Task(type=fetch_questions)`，异步抓取并将解析结果暂存（可写入临时表或直接生成待确认列表）。
+4. 前端提供“抓取结果预览”表格：显示抓取出来的题目字段（来源、日期、Tache、Partie、Sujet、文本等），允许用户逐条编辑/确认或删除。
+5. 用户确认后，调用 `POST /questions/import` 或专用 API，将选定题目写入数据库；若 slug 已存在则提示“更新现有题目”。
+6. 错误处理：对请求失败/解析异常的 URL 在 UI 上显示错误信息，并允许重新抓取；所有抓取过程记录日志。
+
+### 5.9 Lexeme 管理与合并
+1. 前端提供“Lexeme 管理”页面，列出每个词/短语的 `lemma`, `sense_label`, `gloss`, 引用次数、收藏/SRS 状态。
+2. 用户可手动：
+   - 编辑 `sense_label/gloss/translation`（将 `is_manual` 置为 true）。
+   - 合并多个 Lexeme（选择主条目，系统更新所有 `SentenceLexeme.lexeme_id` 指向主条目，旧条目标记为 archived）。
+   - 拆分/重新关联：从 `SentenceLexeme` 中解除与某个 Lexeme 的关联，转而绑定新的条目或创建新的 Lexeme。
+3. API 需提供：
+   - `PUT /lexemes/{id}` 更新单个 Lexeme（含 sense/翻译）。
+   - `POST /lexemes/{id}/merge` 将多个 lexeme 列表合并至目标 ID。
+   - `PUT /sentences/{sentence_id}/lexemes` 批量更新某句与 Lexeme 的关联。
+4. `FlashcardProgress` 与收藏在合并时同步迁移：迁移到主 lexeme，保留历史记录。
+5. 抓取题目产生的 `source_url`、`source_name` 应在 Question 中记录，供后续溯源；题目详情页显示原始 URL 并可一键重新抓取/更新。
+
+### 5.10 收藏/播放列表与 TTS（下一期扩展）
+1. **多收藏列表**：
+   - 新建 `Collection` 表（id、name、description、type(enum: favorite/playlist)、settings(json)、created_at、updated_at）。
+   - `CollectionItem` 表（collection_id、entity_type(answer/paragraph/sentence/lexeme)、entity_id、order_index、per_item_settings(json)、repeat_count）。
+   - 允许一个实体加入多个收藏列表；原 `Favorite` 可视为系统默认收藏列表（或迁移到 Collection）。
+2. **播放列表**：
+   - 播放列表由收藏列表复制生成，允许追加播放专属设置，如：播放顺序、全局句子停顿、播放速度、是否播放翻译（及选择翻译语言）、重复次数。
+   - 用户可拖拽重排、复制某个条目、对单个条目覆盖全局设置。若启用全局设置覆盖，需弹窗提示会影响所有条目。
+3. **TTS 接口与存储**：
+   - 句子级音频：首次播放时调用 TTS（OpenAI / 其他 API），生成 `sentence_id` 对应的音频文件（推荐保存为 `audio/sentences/{sentence_id}.mp3`），并记录 `AudioAsset` 表（id、entity_type、entity_id、locale、voice、path、duration_ms、created_at、generated_by）。
+   - 句子翻译 TTS：用户播放时才生成并缓存（不同语言分别存储）。
+   - Lexeme（词/短语）音频：按需生成并缓存。
+   - 篇章音频：通过拼接句子音频临时合成，不持久化整篇文件，但允许用户导出时在后端生成合并音频。
+   - 播放列表音频：可提供“导出 MP3”功能，将所选条目按播放设置合成一段音频供下载。
+4. **播放器行为**：
+   - 前端提供独立“播放列表”页面：展示条目顺序、每条的设置、拖拽、复制、删除。
+   - 播放时使用 Web Audio API 或 Media Session API：即使 app 不在前台也可继续播放，并向系统注册播放控制（播放/暂停/下一条等）。移动端需兼容 OS 的全局播放控制。
+   - 支持全局设置（停顿、速度、翻译开关）与 per-item 设置，UI 清楚提示覆盖关系。
+5. **接口示例**：
+   - `POST /collections`、`PUT /collections/{id}`、`DELETE /collections/{id}`
+   - `POST /collections/{id}/items`（批量添加）、`PUT /collection-items/{id}`（更新顺序或设置）、`DELETE /collection-items/{id}`
+   - `POST /audio/generate`（参数：entity_type/entity_id/voice/locale），返回音频资源 ID；若已存在则直接返回。
+   - `GET /audio/{id}` 下载音频；`POST /playlists/{id}/export` 触发合成整列表音频。
+6. **缓存与存储**：音频文件可存储在磁盘或对象存储，表中记录路径；需要定期清理未使用的音频（如长时间未播放的翻译音频）。
+7. **TDD 要求**：对播放列表操作、设置继承、音频生成 API 需提供单测/集成测试；前端需有播放控制组件的单元测试和播放流程的 E2E 测试。
+
+## 6. API 初稿
+
+- `GET /questions`、`POST /questions`、`PUT /questions/{id}`、`DELETE /questions/{id}`
+- `POST /questions/import` 上传 CSV
+- `POST /questions/fetch`：接受 URL 列表，异步抓取题目，返回任务 ID
+- `GET /questions/fetch-results?task_id=`：查看抓取结果预览，可过滤状态/确认情况
+- `GET /questions/{id}/answers` 列出答案组与版本
+- `POST /sessions` 创建学习会话（参数：question_id, answer_group_id?, session_type）
+- `POST /sessions/{id}/draft` 更新用户草稿答案
+- `POST /sessions/{id}/llm/eval` 触发评估轮次（可使用 WebSocket 推送）
+- `POST /answers/{id}/finalize` 将 session 最终结果固化为 Answer
+- `GET /answers/{id}` 查看答案结构、句子、图数据
+   - `POST /answers/{id}/phrase-split` 触发句子深度拆解（可选参数：是否强制拆分、最小复杂度、仅拆分指定句子）
+- `POST /answers/{id}/structure-graph` 触发可选的篇章图分析任务
+- `GET /flashcards/due`、`POST /flashcards/{id}/result`
+- `GET /settings/user-profile`、`PUT /settings/user-profile`（全局考生人设配置，供 T2 生成使用）
+- `GET /tasks`、`GET /tasks/{id}`：查询后台任务状态；`POST /tasks/{id}/retry` 重试单个任务；`DELETE /tasks/{id}` 取消任务；`POST /answers/{id}/tasks` 以任务类型为参数补充未执行步骤
+- `GET /favorites`、`POST /favorites`、`DELETE /favorites/{id}`：收藏列表及操作
+- `GET /tags`（可选预设标签）、`GET /questions?tag=xxx`：基于 `QuestionTag` 表过滤；题目 CRUD 中需支持标签编辑
+- `GET /lexemes`、`PUT /lexemes/{id}`、`POST /lexemes/{id}/merge`：Lexeme 管理
+- `PUT /sentences/{sentence_id}/lexemes`：更新句子与 Lexeme 的关联（可增删改）
+- `GET /collections`、`POST /collections`、`PUT /collections/{id}`、`DELETE /collections/{id}`
+- `POST /collections/{id}/items`、`PUT /collection-items/{id}`、`DELETE /collection-items/{id}`
+- `POST /audio/generate`、`GET /audio/{id}`、`POST /playlists/{id}/export`
+
+（真实接口可根据实现细节调整）
+
+## 7. LLM 流程分类
+
+1. **Answer Evaluation Loop**：prompt 用户改进答案；维护上下文，直到用户确认。以后台任务运行，支持断点续作与手动重试。
+2. **Title & Descriptor Generation**：生成答案标题、主旨描述（可作为 `stance/descriptor`）。
+3. **Structure Extraction**：输出段落/语块/句子 JSON，并包含角色标签、关系描述。
+4. **Graph Relation Builder**：基于结构描述构造图形节点/边。
+5. **Sentence Translation**：生成句子中英翻译。
+6. **Phrase Splitter**（可选）：将长句拆成短语/单词，并生成翻译。
+7. **Answer Comparator**：比较现有答案与新草稿主旨/结构差异。
+8. **Gap Highlight & Feedback**：指出缺失内容、语法词汇问题。
+9. **AnswerComposer / Refined Answer Generator**：调用链需先生成满足风格/难度/篇章要求的法语文本（T2 需输出自然的双人对话，结合全局 `user_profile` 与 `dialogue_profile` 生成合理人设、提问/追问/评论链路），再单独触发结构化流程；每个阶段由独立任务承载，便于并行与重试；对于 i+1 版本，同样遵循“先作文，后拆解”的顺序。
+
+## 8. 前端页面草图
+
+> 详见 `frontend_spec.md` 获取更细的组件与交互定义（包含 TypeScript 与 TDD 约束）。
+
+1. **题目管理**
+   - 列表、过滤（来源/年份/标签/T2T3）、增改表单。
+   - CSV 导入面板。
+   - “抓取题目”对话框：填写 URL 列表，发起抓取任务，查看进度与预览，逐条确认后导入。
+2. **题目详情 / 答案管理**
+   - 显示现有答案组及最新版本，提供“开始学习/复习”按钮。
+3. **学习工作台**
+   - 左侧展示题目和 LLM 反馈日志，右侧编辑器（用户答案）。
+   - 多轮反馈的提示流。
+4. **篇章浏览**
+   - 段落/句子树状结构展示，显示翻译、关系图（图结构为可选功能；若尚未生成，提供“生成篇章图”按钮）。
+   - 展示句子拆分状态，允许逐句触发/重试 `split_phrase`，并查看/管理 `Lexeme`。
+5. **抽认卡**
+   - 句子/词块练习模式切换，记录结果并显示下次复习时间。
+6. **任务中心**
+   - 全局或页面级展示后台任务列表/进度条，提供重试、取消、跳转到对应 Answer/Session 的入口。
+7. **收藏面板**
+   - 展示已收藏的答案/段落/句子/词块，支持筛选、跳转到来源。
+8. **Lexeme 管理**
+   - 列表展示所有 lexeme（带 sense/gloss/引用次数），提供编辑、合并、拆分、重新绑定句子的界面。
+
+## 9. 可扩展性与后续工作
+
+- 引入用户/权限、团队协作。
+- 实现真正的 SRS（SM-2、FSRS）算法。
+- 支持多 LLM 提供商、离线模型。
+- 加入音频录入、语音识别。
+- 导出功能、数据备份。
+- 多收藏/播放列表与 TTS 播放系统。
+
+---
+
+本文档用于指导后续需求细化与自动化代码生成。可在实现过程中更新。***
