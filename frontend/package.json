@@ -24,5 +24,6 @@
     "@vue/test-utils": "^2.4.0",
     "jsdom": "^23.0.0",
     "playwright": "^1.41.0"
-  }
+  },
+  "packageManager": "pnpm@8.15.0"
 }

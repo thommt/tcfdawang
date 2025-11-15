@@ -12,4 +12,32 @@
 - 全面采用 **TDD**：后端 Pytest，前端 Vitest/Playwright。
 - LLM 交互通过 LangChain 模块实现，所有 Prompt 需结构化输入/输出。
 
-后续将依照 spec 分阶段实现 API、前端页面与异步任务队列。
+## 当前状态
+
+- 已提供 FastAPI 骨架及 `/health`、`/questions` CRUD API（使用 SQLModel + SQLite）。
+- 前端使用 Vite + Vue3 + TypeScript (Pinia/Vue Router) 初始化完毕。
+- 参考 `spec.md`、`frontend_spec.md` 获取业务与页面细节。
+
+## 本地运行
+
+```bash
+# 使用 uv（推荐）安装依赖
+uv sync --dev
+
+# 运行后端（根目录）
+uv run uvicorn app.main:app --reload
+
+# 后端测试
+uv run pytest
+
+# 前端使用 pnpm
+cd frontend
+pnpm install
+pnpm dev
+
+# 前端单测 / 端到端测试
+pnpm test:unit
+pnpm test:e2e
+```
+
+后续将依照 spec 分阶段实现 LLM 流程、抓取页面、收藏/播放列表等功能。
