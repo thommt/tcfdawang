@@ -1,0 +1,7 @@
+fetchers:
+  - name: reussir
+    domains:
+      - reussir-tcfcanada.com
+    fetcher: app.fetchers.reussir:ReussirFetcher
+    options:
+      source_name: "reussir-tcfcanada"

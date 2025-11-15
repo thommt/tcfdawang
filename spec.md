@@ -153,6 +153,11 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 4. 前端提供“抓取结果预览”表格：显示抓取出来的题目字段（来源、日期、Tache、Partie、Sujet、文本等），允许用户逐条编辑/确认或删除。
 5. 用户确认后，调用 `POST /questions/import` 或专用 API，将选定题目写入数据库；若 slug 已存在则提示“更新现有题目”。
 6. 错误处理：对请求失败/解析异常的 URL 在 UI 上显示错误信息，并允许重新抓取；所有抓取过程记录日志。
+7. **抓取器抽象与配置**：
+   - 定义 `BaseQuestionFetcher` 接口（输入：URL + 配置；输出：标准化的题目信息），具体站点可实现各自的解析逻辑。
+   - 在 `config/fetchers.yaml`（或类似文件）中列出可用抓取器，配置项包括：匹配域名/路径、CSS 选择器、标题提取正则、Tâche/Partie/Sujet 层级解析规则等。
+   - 后端 `fetch` 任务根据 URL 匹配到的配置加载对应抓取器，允许通过配置文件轻松调整解析规则，而不修改代码。
+   - 支持 fallback 抓取器（通用选择器/正则），用于快速尝试未知站点；若无法解析，返回带错误信息的结果并提示用户手动处理。
 
 ### 5.9 Lexeme 管理与合并
 1. 前端提供“Lexeme 管理”页面，列出每个词/短语的 `lemma`, `sense_label`, `gloss`, 引用次数、收藏/SRS 状态。
