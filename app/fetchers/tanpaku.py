@@ -65,7 +65,7 @@ class TanpakuFetcher(BaseQuestionFetcher):
                     month=month,
                     suite=item["combinaison"],
                     number=str(item["sujet"]),
-                    title=f"Sujet {item['sujet']}",
+                    title=slug,
                     body=item["body"],
                     tags=[],
                     slug=slug,
@@ -138,5 +138,5 @@ class TanpakuFetcher(BaseQuestionFetcher):
         return results
 
     def _build_slug(self, year, month, tache, combinaison, sujet) -> str:
-        comb = str(combinaison)
-        return f"{year:04d}{month:02d}.T{int(tache)}.P{comb}S{int(sujet)}"
+        comb = int(combinaison)
+        return f"OP{year:04d}{month:02d}.T{int(tache)}.P{comb:02d}S{int(sujet):02d}"

@@ -16,7 +16,7 @@
 
 - 已提供 FastAPI 骨架及 `/health`、`/questions` CRUD API（使用 SQLModel + SQLite）。
 - 前端使用 Vite + Vue3 + TypeScript (Pinia/Vue Router) 初始化完毕。
-- 新增可配置的题目抓取器（`config/fetchers.yaml` + FetchManager），目前支持 reussir-tcfcanada 与 tcf.opal-ca 站点。
+- 新增可配置的题目抓取器（`config/fetchers.yaml` + FetchManager），目前支持多个官方口语题发布站点（代称 Seikou、Tanpaku）。
 - 参考 `spec.md`、`frontend_spec.md` 获取业务与页面细节。
 
 ## 本地运行

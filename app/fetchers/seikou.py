@@ -54,6 +54,7 @@ class SeikouFetcher(BaseQuestionFetcher):
         result: List[FetchedQuestion] = []
         for item in questions:
             slug = self._build_slug(year, month, item["tache"], item["partie"], item["sujet"])
+            slug = self._build_slug(year, month, item["tache"], item["partie"], item["sujet"])
             result.append(
                 FetchedQuestion(
                     type=f"T{item['tache']}",
@@ -62,7 +63,7 @@ class SeikouFetcher(BaseQuestionFetcher):
                     month=month,
                     suite=str(item["partie"]),
                     number=str(item["sujet"]),
-                    title=f"Sujet {item['sujet']}",
+                    title=slug,
                     body=item["body"],
                     tags=[],
                     slug=slug,
@@ -150,4 +151,4 @@ class SeikouFetcher(BaseQuestionFetcher):
             state["buffer"] = []
 
     def _build_slug(self, year, month, tache, partie, sujet) -> str:
-        return f"{year:04d}{month:02d}.T{int(tache)}.P{int(partie)}S{int(sujet)}"
+        return f"RE{year:04d}{month:02d}.T{int(tache)}.P{int(partie):02d}S{int(sujet):02d}"

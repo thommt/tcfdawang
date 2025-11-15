@@ -4,7 +4,7 @@ from typing import Generator
 import pytest
 
 from sqlalchemy.pool import StaticPool
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.fetchers.manager import FetchManager
 from app.models.fetch import FetchedQuestion
@@ -121,9 +121,9 @@ def test_fetch_manager_parses_questions(
     assert question.number == "1"
     assert question.year == 2025
     assert question.month == 10
-    assert question.title.startswith("Sujet 1")
+    assert question.slug == "RE202510.T3.P01S01"
+    assert question.title == question.slug
     assert "environnement" in question.body
-    assert question.slug == "202510.T3.P1S1"
     assert question.source_url == url
 
 
@@ -155,7 +155,7 @@ def test_fetched_question_can_be_saved(
         tags=question.tags,
     )
     created = service.create_question(payload)
-    assert created.title == question.title
+    assert created.title == question.slug
     db_question = session.get(Question, created.id)
     assert db_question is not None
     assert db_question.suite == question.suite
@@ -182,3 +182,49 @@ def test_tanpaku_fetcher_parses_combinaisons(
     assert t3.type == "T3"
     assert t3.suite == "2"
     assert t3.number == "1"
+    assert t2.slug == "OP202509.T2.P01S01"
+    assert t3.slug == "OP202509.T3.P02S01"
+    assert t2.title == t2.slug
+
+
+def test_bulk_save_after_fetch(
+    fetch_manager: FetchManager,
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_get(url: str, headers=None, timeout=30):
+        if "opal" in url:
+            return DummyResponse(OPAL_HTML)
+        return DummyResponse(SAMPLE_HTML)
+
+    monkeypatch.setattr("app.fetchers.seikou.requests.get", fake_get)
+    monkeypatch.setattr("app.fetchers.tanpaku.requests.get", fake_get)
+    urls = [
+        "https://reussir-tcfcanada.com/octobre-2025-expression-orale/",
+        "https://tcf.opal-ca.net/expression-orale-SEPTEMBRE-2025/",
+    ]
+    results = fetch_manager.fetch_urls(urls)
+    assert len(results) == 3  # 1 + 2
+    service = QuestionService(session)
+    created_ids = []
+    for item in results:
+        payload = QuestionCreate(
+            type=item.type,
+            source=item.source,
+            year=item.year,
+            month=item.month,
+            suite=item.suite,
+            number=item.number,
+            title=item.title,
+            body=item.body,
+            tags=item.tags,
+        )
+        created = service.create_question(payload)
+        created_ids.append(created.id)
+
+    assert len(created_ids) == 3
+    all_rows = session.exec(select(Question)).all()
+    assert len(all_rows) == 3
+    slugs = {row.title for row in all_rows}
+    assert "RE202510.T3.P01S01" in slugs
+    assert "OP202509.T2.P01S01" in slugs
