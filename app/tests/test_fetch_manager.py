@@ -44,9 +44,9 @@ class DummyResponse:
 def fetch_config(tmp_path: Path) -> Path:
     config_text = """
 fetchers:
-  - name: reussir
+  - name: seikou
     domains: ["reussir-tcfcanada.com"]
-    fetcher: app.fetchers.reussir:ReussirFetcher
+    fetcher: app.fetchers.seikou:SeikouFetcher
     options:
       source_name: "reussir-tcfcanada"
 """
@@ -80,7 +80,7 @@ def test_fetch_manager_parses_questions(
         assert "octobre-2025" in url
         return DummyResponse(SAMPLE_HTML)
 
-    monkeypatch.setattr("app.fetchers.reussir.requests.get", fake_get)
+    monkeypatch.setattr("app.fetchers.seikou.requests.get", fake_get)
     url = "https://reussir-tcfcanada.com/octobre-2025-expression-orale/"
     results = fetch_manager.fetch_urls([url])
     assert len(results) == 1
@@ -109,7 +109,7 @@ def test_fetched_question_can_be_saved(
     def fake_get(url: str, headers=None, timeout=30):
         return DummyResponse(SAMPLE_HTML)
 
-    monkeypatch.setattr("app.fetchers.reussir.requests.get", fake_get)
+    monkeypatch.setattr("app.fetchers.seikou.requests.get", fake_get)
     url = "https://reussir-tcfcanada.com/octobre-2025-expression-orale/"
     question = fetch_manager.fetch_urls([url])[0]
     service = QuestionService(session)

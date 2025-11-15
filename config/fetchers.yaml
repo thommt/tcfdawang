@@ -1,7 +1,7 @@
 fetchers:
-  - name: reussir
+  - name: seikou
     domains:
       - reussir-tcfcanada.com
-    fetcher: app.fetchers.reussir:ReussirFetcher
+    fetcher: app.fetchers.seikou:SeikouFetcher
     options:
       source_name: "reussir-tcfcanada"
