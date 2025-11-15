@@ -144,7 +144,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 4. Question 标签使用 `QuestionTag` 表维护，便于按标签过滤；导入/编辑题目时同步更新该表。
 
 ### 5.8 题目抓取（Web UI）
-1. 在题目管理界面提供“抓取题目”对话框，允许用户输入一个或多个 URL（如 reussir-tcfcanada.com）。前端将 URL 列表提交给后端 API（`POST /questions/fetch`），后端基于 `fetch.py` 的解析逻辑执行抓取。
+1. 在题目管理界面提供“抓取题目”对话框，允许用户输入一个或多个 URL（如 reussir-tcfcanada.com、tcf.opal-ca.net）。前端将 URL 列表提交给后端 API（`POST /questions/fetch`），后端基于配置化抓取器执行解析。
 2. 抓取规则：
    - 识别 “Tâche / Partie / Sujet” 层级，组合生成唯一 slug（例：`202510.T3.P1S2`）。
    - 自动解析页面标题中的月份/年份；若缺失可由用户通过界面补充。

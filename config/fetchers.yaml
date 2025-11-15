@@ -5,3 +5,9 @@ fetchers:
     fetcher: app.fetchers.seikou:SeikouFetcher
     options:
       source_name: "reussir-tcfcanada"
+  - name: tanpaku
+    domains:
+      - tcf.opal-ca.net
+    fetcher: app.fetchers.tanpaku:TanpakuFetcher
+    options:
+      source_name: "opal-ca"

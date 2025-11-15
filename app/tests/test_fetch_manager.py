@@ -40,6 +40,31 @@ class DummyResponse:
         return
 
 
+OPAL_HTML = """
+<html>
+  <head>
+    <title>Expression Orale SEPTEMBRE 2025</title>
+  </head>
+  <body>
+    <h1>Expression Orale SEPTEMBRE 2025</h1>
+    <section>
+      <h2>TÂCHE 2</h2>
+      <h3>COMBINAISON 1</h3>
+      <p>Sujet 1</p>
+      <p>Expliquez l'importance de l'apprentissage.</p>
+      <p>Donnez des exemples personnels.</p>
+    </section>
+    <section>
+      <h2>TÂCHE 3</h2>
+      <h3>COMBINAISON 2</h3>
+      <p>Sujet 1</p>
+      <p>Débattez avec un ami sur la technologie.</p>
+    </section>
+  </body>
+</html>
+"""
+
+
 @pytest.fixture()
 def fetch_config(tmp_path: Path) -> Path:
     config_text = """
@@ -49,6 +74,11 @@ fetchers:
     fetcher: app.fetchers.seikou:SeikouFetcher
     options:
       source_name: "reussir-tcfcanada"
+  - name: tanpaku
+    domains: ["tcf.opal-ca.net"]
+    fetcher: app.fetchers.tanpaku:TanpakuFetcher
+    options:
+      source_name: "opal-ca"
 """
     path = tmp_path / "fetchers.yaml"
     path.write_text(config_text, encoding="utf-8")
@@ -130,3 +160,25 @@ def test_fetched_question_can_be_saved(
     assert db_question is not None
     assert db_question.suite == question.suite
     assert db_question.number == question.number
+
+
+def test_tanpaku_fetcher_parses_combinaisons(
+    fetch_manager: FetchManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_get(url: str, headers=None, timeout=30):
+        assert "opal" in url
+        return DummyResponse(OPAL_HTML)
+
+    monkeypatch.setattr("app.fetchers.tanpaku.requests.get", fake_get)
+    url = "https://tcf.opal-ca.net/expression-orale-SEPTEMBRE-2025/"
+    questions = fetch_manager.fetch_urls([url])
+    assert len(questions) == 2
+    t2, t3 = questions
+    assert t2.type == "T2"
+    assert t2.suite == "1"
+    assert t2.number == "1"
+    assert t2.month == 9
+    assert "apprentissage" in t2.body
+    assert t3.type == "T3"
+    assert t3.suite == "2"
+    assert t3.number == "1"
