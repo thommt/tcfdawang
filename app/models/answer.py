@@ -38,6 +38,12 @@ class AnswerRead(AnswerBase):
     created_at: datetime
 
 
+class AnswerUpdate(BaseModel):
+    title: Optional[str] = None
+    text: Optional[str] = None
+    status: Optional[str] = None
+
+
 class SessionBase(BaseModel):
     question_id: int
     answer_id: Optional[int] = None
@@ -56,3 +62,9 @@ class SessionRead(SessionBase):
     started_at: datetime
     completed_at: Optional[datetime] = None
 
+
+class SessionUpdate(BaseModel):
+    answer_id: Optional[int] = None
+    status: Optional[str] = None
+    user_answer_draft: Optional[str] = None
+    progress_state: Optional[dict] = None
