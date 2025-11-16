@@ -24,3 +24,7 @@ class TaskRead(BaseModel):
 class FetchResponse(BaseModel):
     task: TaskRead
     results: List[FetchedQuestion]
+
+
+class FetchImportRequest(BaseModel):
+    task_id: int

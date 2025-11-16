@@ -54,7 +54,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 
 | 实体 | 关键字段 |
 | --- | --- |
-| `Question` | id、type(T2/T3)、source、year、month、suite、number、title（LLM/用户生成的简短中文总结）、body、created_at、updated_at |
+| `Question` | id、type(T2/T3)、source、year、month、suite、number、title（LLM/用户生成的简短中文总结）、body、created_at、updated_at；返回给前端时根据 source/year/month/suite/number 自动拼出 slug（如 `RE202508.T3.P04S01`），仅用于展示 |
 | `AnswerGroup` | id、question_id、slug（可读标识）、title（LLM 生成的简短中文总结）、descriptor（对立场/主题/主旨的简短描述，如 support/oppose 或 “math”）、dialogue_profile(json，记录 T2 对话设定：考官设定、考生临时人设、态度、语体、语法难度、提问深度等)、created_at |
 | `Answer` | id、answer_group_id、version_index（最新为最高）、status(active/archived)、text、title、created_at |
 | `Paragraph` | id、answer_id、order_index、summary、role_label（如 intro/body/conclusion 或 T2 的 opening/turn/closing）、semantic_label（可选，用于描述语块主题） |
@@ -151,8 +151,9 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - 默认将 `tache=2` 归类为 T2，`tache=3` 为 T3；其它值可忽略或显示警告。
 3. 提交抓取任务后，后端创建 `Task(type=fetch_questions)`，异步抓取并将解析结果暂存（可写入临时表或直接生成待确认列表）。
 4. 前端提供“抓取结果预览”表格：显示抓取出来的题目字段（来源、日期、Tache、Partie、Sujet、文本等），允许用户逐条编辑/确认或删除。
-5. 用户确认后，调用 `POST /questions/import` 或专用 API，将选定题目写入数据库；若 slug 已存在则提示“更新现有题目”。
-6. 错误处理：对请求失败/解析异常的 URL 在 UI 上显示错误信息，并允许重新抓取；所有抓取过程记录日志。
+5. 用户确认后，调用 `POST /questions/import` 或专用 API，将选定题目写入数据库；利用 `(source, year, month, suite, number)` 作为唯一键决定更新/创建，slug 仅用于展示。
+6. 新增 `POST /api/questions/fetch/import`：按 task_id 批量写入抓取结果，默认导入所有结果；如遇重复题目或未找到任务则返回可解析的错误。
+7. 错误处理：对请求失败/解析异常的 URL 在 UI 上显示错误信息，并允许重新抓取；所有抓取过程记录日志。
 7. **抓取器抽象与配置**：
    - 定义 `BaseQuestionFetcher` 接口（输入：URL + 配置；输出：标准化的题目信息），具体站点可实现各自的解析逻辑。
    - 在 `config/fetchers.yaml`（或类似文件）中列出可用抓取器，配置项包括：匹配域名/路径、CSS 选择器、标题提取正则、Tâche/Partie/Sujet 层级解析规则等。
@@ -245,6 +246,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 
 1. **题目管理**
    - 列表、过滤（来源/年份/标签/T2T3）、增改表单。
+   - 列表需显示 slug（只读）并提供“LLM 生成标题/标签”按钮：调用 `POST /questions/{id}/generate-metadata`，在后端写入新的中文标题与最多 5 个标签。
    - CSV 导入面板。
    - “抓取题目”对话框：填写 URL 列表，发起抓取任务，查看进度与预览，逐条确认后导入。
 2. **题目详情 / 答案管理**

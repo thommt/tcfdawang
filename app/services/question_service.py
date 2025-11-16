@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.db.schemas.question import Question, QuestionTag
 from app.models.question import QuestionCreate, QuestionRead, QuestionUpdate
+from app.services.llm_service import LLMError, QuestionLLMClient
 
 
 class QuestionService:
@@ -42,13 +43,34 @@ class QuestionService:
         self._sync_tags(question.id, data.tags)
         return self._to_read_model(question)
 
+    def upsert_question(self, data: QuestionCreate) -> QuestionRead:
+        statement = select(Question).where(
+            Question.source == data.source,
+            Question.year == data.year,
+            Question.month == data.month,
+            Question.suite == data.suite,
+            Question.number == data.number,
+        )
+        existing = self.session.exec(statement).first()
+        if existing:
+            existing.type = data.type
+            existing.title = data.title
+            existing.body = data.body
+            existing.updated_at = datetime.now(timezone.utc)
+            self.session.add(existing)
+            self.session.commit()
+            self.session.refresh(existing)
+            self._sync_tags(existing.id, data.tags)
+            return self._to_read_model(existing)
+        return self.create_question(data)
+
     def get_question(self, question_id: int) -> QuestionRead:
         question = self._get_question_entity(question_id)
         return self._to_read_model(question)
 
     def update_question(self, question_id: int, data: QuestionUpdate) -> QuestionRead:
         question = self._get_question_entity(question_id)
-        update_data = data.model_dump(exclude_unset=True, exclude={"tags"})
+        update_data = data.model_dump(exclude_unset=True, include={"title"})
         for key, value in update_data.items():
             setattr(question, key, value)
         question.updated_at = datetime.now(timezone.utc)
@@ -57,6 +79,26 @@ class QuestionService:
             self._sync_tags(question_id, data.tags)
         self.session.commit()
         self.session.refresh(question)
+        return self._to_read_model(question)
+
+    def generate_metadata(self, question_id: int, llm_client: QuestionLLMClient) -> QuestionRead:
+        question = self._get_question_entity(question_id)
+        tags = self._get_tags(question.id)
+        try:
+            metadata = llm_client.generate_metadata(
+                slug=self._build_slug(question),
+                body=question.body,
+                question_type=question.type,
+                tags=tags,
+            )
+        except LLMError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        question.title = metadata.title
+        question.updated_at = datetime.now(timezone.utc)
+        self.session.add(question)
+        self.session.commit()
+        self.session.refresh(question)
+        self._sync_tags(question.id, metadata.tags)
         return self._to_read_model(question)
 
     def delete_question(self, question_id: int) -> None:
@@ -102,5 +144,37 @@ class QuestionService:
     def _to_read_model(self, question: Question) -> QuestionRead:
         tags = self._get_tags(question.id)
         data = question.model_dump()
+        data["slug"] = self._build_slug(question)
         data["tags"] = tags
         return QuestionRead(**data)
+
+    def _build_slug(self, question: Question) -> str | None:
+        if not all([question.source, question.year, question.month, question.suite, question.number]):
+            return None
+        try:
+            suite_num = int("".join(filter(str.isdigit, str(question.suite))))
+            sujet_num = int("".join(filter(str.isdigit, str(question.number))))
+        except ValueError:
+            return None
+        if suite_num <= 0 or sujet_num <= 0:
+            return None
+        type_suffix = question.type[-1] if question.type else ""
+        if type_suffix not in {"2", "3"}:
+            return None
+        prefix = self._prefix_from_source(question.source)
+        return f"{prefix}{question.year:04d}{question.month:02d}.T{type_suffix}.P{suite_num:02d}S{sujet_num:02d}"
+
+    def _prefix_from_source(self, source: str | None) -> str:
+        if not source:
+            return "QG"
+        normalized = source.lower()
+        if "reussir" in normalized:
+            return "RE"
+        if "opal" in normalized:
+            return "OP"
+        if "tanpaku" in normalized:
+            return "TA"
+        if "seikou" in normalized:
+            return "SE"
+        cleaned = "".join(ch for ch in source if ch.isalpha())
+        return (cleaned[:2] or "QG").upper()

@@ -82,6 +82,7 @@ def test_fetch_api_creates_task_and_results(client: TestClient) -> None:
     results = resp.json()
     assert len(results) == 1
     assert results[0]["title"] == "RE202511.T3.P01S01"
+    assert results[0]["slug"] == "RE202511.T3.P01S01"
 
 
 def test_fetch_api_returns_error_on_failure(client: TestClient) -> None:
@@ -93,3 +94,14 @@ def test_fetch_api_returns_error_on_failure(client: TestClient) -> None:
     response = client.post("/questions/fetch", json={"urls": ["https://unknown"]})
     assert response.status_code == 400
     assert "No fetcher" in response.json()["detail"]
+
+
+def test_fetch_import_results(client: TestClient) -> None:
+    fetch_resp = client.post("/questions/fetch", json={"urls": ["https://example/test"]})
+    task_id = fetch_resp.json()["task"]["id"]
+    import_resp = client.post("/questions/fetch/import", json={"task_id": task_id})
+    assert import_resp.status_code == 201
+    data = import_resp.json()
+    assert len(data) == 1
+    assert data[0]["title"] == "RE202511.T3.P01S01"
+    assert data[0]["slug"] == "DU202511.T3.P01S01"

@@ -1,11 +1,10 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, HTTPException
 
-from app.api.dependencies import get_session
-from app.api.dependencies import get_fetch_manager
-from app.models.fetch_task import FetchRequest, FetchResponse, TaskRead
-from fastapi import HTTPException
+from app.api.dependencies import get_session, get_fetch_manager
+from app.models.fetch_task import FetchRequest, FetchResponse, TaskRead, FetchImportRequest
+from app.models.question import QuestionRead
 
 from app.services.fetch_service import FetchTaskService
 
@@ -41,3 +40,14 @@ def fetch_results(
 ) -> List[dict]:
     results = service.list_results(task_id)
     return [item.model_dump() for item in results]
+
+
+@router.post("/import", response_model=List[QuestionRead], status_code=status.HTTP_201_CREATED)
+def import_fetch_results(
+    payload: FetchImportRequest,
+    service: FetchTaskService = Depends(get_fetch_service),
+) -> List[QuestionRead]:
+    try:
+        return service.import_results(payload.task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

@@ -21,19 +21,13 @@ class QuestionCreate(QuestionBase):
 
 
 class QuestionUpdate(BaseModel):
-    type: Optional[str] = Field(default=None, pattern=r"^T[23]$")
-    source: Optional[str] = None
-    year: Optional[int] = None
-    month: Optional[int] = None
-    suite: Optional[str] = None
-    number: Optional[str] = None
     title: Optional[str] = None
-    body: Optional[str] = None
     tags: Optional[List[str]] = None
 
 
 class QuestionRead(QuestionBase):
     id: int
+    slug: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

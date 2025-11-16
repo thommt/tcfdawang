@@ -10,13 +10,13 @@
 
 - 统一使用 **UTF-8 (LF)**。
 - 全面采用 **TDD**：后端 Pytest，前端 Vitest/Playwright。
-- LLM 交互通过 LangChain 模块实现，所有 Prompt 需结构化输入/输出。
+- LLM 交互采用 OpenAI Chat Completions API（`POST /questions/{id}/generate-metadata` 会调用），Prompt 需返回结构化 JSON。
 
 ## 当前状态
 
 - 已提供 FastAPI 骨架及 `/health`、`/questions` CRUD API（使用 SQLModel + SQLite）。
 - 前端使用 Vite + Vue3 + TypeScript (Pinia/Vue Router) 初始化完毕。
-- 新增可配置的题目抓取器与 API（`POST /questions/fetch`、`GET /questions/fetch/results`），目前支持多个官方口语题发布站点（代称 Seikou、Tanpaku）。
+- 新增可配置的题目抓取器与 API（`POST /questions/fetch`、`GET /questions/fetch/results`、`POST /questions/fetch/import`），目前支持多个官方口语题发布站点（代称 Seikou、Tanpaku）。
 - 参考 `spec.md`、`frontend_spec.md` 获取业务与页面细节。
 
 ## 本地运行
@@ -42,5 +42,15 @@ pnpm dev
 pnpm test:unit
 pnpm test:e2e
 ```
+
+## LLM 配置
+
+若要启用“LLM 生成标题/标签”按钮，需要在后端环境变量中设置：
+
+- `OPENAI_API_KEY`：必填，用于访问 OpenAI 兼容接口。
+- `OPENAI_MODEL`：可选，默认 `gpt-4o-mini`。
+- `OPENAI_BASE_URL`：可选，自建代理时填写对应地址（默认 `https://api.openai.com/v1`）。
+
+元数据生成功能基于 LangChain（ChatOpenAI + JSON 输出解析），无需手写 HTTP 调用；前端在题目管理列表中每行都可以点击 “LLM 生成标题/标签” 调用 `POST /questions/{id}/generate-metadata`，服务端会写入新的中文标题以及最多 5 个标签。
 
 后续将依照 spec 分阶段实现 LLM 流程、抓取页面、收藏/播放列表等功能。

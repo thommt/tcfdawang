@@ -6,7 +6,8 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
 from app.main import app
-from app.api.dependencies import get_session
+from app.api.dependencies import get_session, get_llm_client
+from app.services.llm_service import GeneratedQuestionMetadata
 from app.db.schemas import Question, QuestionTag  # noqa: F401
 
 
@@ -203,3 +204,47 @@ def test_update_question_tags_sync(client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["tags"] == ["beta", "gamma", "delta"]
+
+
+def test_question_slug_is_computed_from_fields(client: TestClient) -> None:
+    payload = {
+        "type": "T2",
+        "source": "reussir-tcfcanada.com",
+        "year": 2025,
+        "month": 10,
+        "suite": "1",
+        "number": "2",
+        "title": "Default",
+        "body": "Body",
+        "tags": [],
+    }
+    response = client.post("/questions", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["slug"] == "RE202510.T2.P01S02"
+
+
+def test_generate_question_metadata(client: TestClient) -> None:
+    class DummyLLM:
+        def generate_metadata(self, *, slug, body, question_type, tags):
+            return GeneratedQuestionMetadata(title="新的标题", tags=["教育", "家庭"])
+
+    app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
+    payload = {
+        "type": "T2",
+        "source": "mock",
+        "year": 2024,
+        "month": 9,
+        "suite": "H",
+        "number": "09",
+        "title": "原始标题",
+        "body": "Parlez de votre ville.",
+        "tags": ["ville"],
+    }
+    created = client.post("/questions", json=payload).json()
+    response = client.post(f"/questions/{created['id']}/generate-metadata")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "新的标题"
+    assert data["tags"] == ["教育", "家庭"]
+    assert data["slug"] == created["slug"]

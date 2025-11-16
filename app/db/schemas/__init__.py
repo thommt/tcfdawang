@@ -1,4 +1,4 @@
 from .question import Question, QuestionTag
-from .task import Task, FetchResult
+from .task import Task
 
-__all__ = ["Question", "QuestionTag", "Task", "FetchResult"]
+__all__ = ["Question", "QuestionTag", "Task"]

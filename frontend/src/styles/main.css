@@ -37,6 +37,25 @@ body {
   padding: 0.4rem;
 }
 
+.filters {
+  margin: 1rem 0;
+  display: flex;
+  gap: 1rem;
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
 .info {
   margin: 1rem 0;
 }

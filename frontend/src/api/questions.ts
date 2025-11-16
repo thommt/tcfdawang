@@ -43,3 +43,13 @@ export async function getFetchResults(taskId: number): Promise<FetchQuestionResu
   });
   return response.data;
 }
+
+export async function importFetchResultsApi(taskId: number): Promise<Question[]> {
+  const response = await apiClient.post<Question[]>(`${resource}/fetch/import`, { task_id: taskId });
+  return response.data;
+}
+
+export async function generateQuestionMetadata(id: number): Promise<Question> {
+  const response = await apiClient.post<Question>(`${resource}/${id}/generate-metadata`, {});
+  return response.data;
+}

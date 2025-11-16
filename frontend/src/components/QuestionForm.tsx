@@ -1,4 +1,4 @@
-import { defineComponent, reactive, watch, computed } from 'vue';
+import { defineComponent, reactive, watch, computed, PropType } from 'vue';
 import type { QuestionPayload } from '../types/question';
 
 export default defineComponent({
@@ -7,6 +7,10 @@ export default defineComponent({
     modelValue: {
       type: Object as () => QuestionPayload,
       required: true,
+    },
+    editableFields: {
+      type: Array as PropType<(keyof QuestionPayload)[]>,
+      default: undefined,
     },
   },
   emits: ['save', 'cancel'],
@@ -17,21 +21,31 @@ export default defineComponent({
       () => props.modelValue,
       (value) => {
         Object.assign(localForm, value);
-      }
+      },
+      { deep: true, immediate: true }
     );
 
     const tagsInput = computed({
-      get: () => (localForm.tags ?? []).join(', '),
+      get: () => (localForm.tags ?? []).join(' '),
       set: (value: string) => {
+        const stripPunctuation = (text: string) =>
+          text.replace(/^[\s,.，。、!！?？;；:："'“”'`<>《》()（）\[\]{}【】]+/, '').replace(
+            /[\s,.，。、!！?？;；:："'“”'`<>《》()（）\[\]{}【】]+$/,
+            ''
+          );
         localForm.tags = value
-          .split(',')
-          .map((tag) => tag.trim())
+          .split(/\s+/)
+          .map((tag) => stripPunctuation(tag).trim())
           .filter(Boolean);
       },
     });
 
+    const isEditable = (field: keyof QuestionPayload) => !props.editableFields || props.editableFields.includes(field);
+
     const bindString = (key: keyof QuestionPayload) => ({
+      name: key,
       value: (localForm[key] as string) ?? '',
+      disabled: !isEditable(key),
       onInput: (event: Event) => {
         const target = event.target as HTMLInputElement | HTMLTextAreaElement;
         (localForm[key] as string | undefined) = target.value;
@@ -39,7 +53,9 @@ export default defineComponent({
     });
 
     const bindNumber = (key: 'year' | 'month') => ({
+      name: key,
       value: localForm[key],
+      disabled: !isEditable(key),
       onInput: (event: Event) => {
         const target = event.target as HTMLInputElement;
         const value = Number(target.value);
@@ -50,7 +66,9 @@ export default defineComponent({
     });
 
     const bindSelect = (key: keyof QuestionPayload) => ({
+      name: key,
       value: localForm[key] as string,
+      disabled: !isEditable(key),
       onChange: (event: Event) => {
         const target = event.target as HTMLSelectElement;
         (localForm[key] as string | undefined) = target.value as any;
@@ -103,9 +121,11 @@ export default defineComponent({
           <textarea rows={4} {...bindString('body')} required></textarea>
         </label>
         <label>
-          标签（以逗号分隔）
+          标签（以空格分隔）
           <input
+            name="tags"
             value={tagsInput.value}
+            disabled={!isEditable('tags')}
             onInput={(event) => {
               const target = event.target as HTMLInputElement;
               tagsInput.value = target.value;

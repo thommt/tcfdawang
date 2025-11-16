@@ -12,6 +12,7 @@ export interface QuestionPayload {
 
 export interface Question extends QuestionPayload {
   id: number;
+  slug?: string | null;
   created_at: string;
   updated_at: string;
 }

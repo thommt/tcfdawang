@@ -2,9 +2,10 @@ from typing import List
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.dependencies import get_session
+from app.api.dependencies import get_session, get_llm_client
 from app.models.question import QuestionCreate, QuestionRead, QuestionUpdate
 from app.services.question_service import QuestionService
+from app.services.llm_service import QuestionLLMClient
 
 
 router = APIRouter(prefix="/questions", tags=["questions"])
@@ -40,6 +41,15 @@ def update_question(
     service: QuestionService = Depends(get_question_service),
 ) -> QuestionRead:
     return service.update_question(question_id, payload)
+
+
+@router.post("/{question_id}/generate-metadata", response_model=QuestionRead)
+def generate_question_metadata(
+    question_id: int,
+    service: QuestionService = Depends(get_question_service),
+    llm_client: QuestionLLMClient = Depends(get_llm_client),
+) -> QuestionRead:
+    return service.generate_metadata(question_id, llm_client)
 
 
 @router.delete("/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
