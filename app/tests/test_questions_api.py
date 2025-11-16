@@ -209,7 +209,7 @@ def test_update_question_tags_sync(client: TestClient) -> None:
 def test_question_slug_is_computed_from_fields(client: TestClient) -> None:
     payload = {
         "type": "T2",
-        "source": "reussir-tcfcanada.com",
+        "source": "seikou",
         "year": 2025,
         "month": 10,
         "suite": "1",

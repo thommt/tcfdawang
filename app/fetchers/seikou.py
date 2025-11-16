@@ -49,8 +49,7 @@ class SeikouFetcher(BaseQuestionFetcher):
         month, year = self._extract_month_year(soup)
         article = self._guess_article_body(soup)
         questions = self._parse_article(article)
-        source = urlparse(url).hostname or "unknown"
-        source_name = self.options.get("source_name", source)
+        source_alias = self.options.get("source_name") or (urlparse(url).hostname or "unknown")
         result: List[FetchedQuestion] = []
         for item in questions:
             slug = self._build_slug(year, month, item["tache"], item["partie"], item["sujet"])
@@ -58,7 +57,7 @@ class SeikouFetcher(BaseQuestionFetcher):
             result.append(
                 FetchedQuestion(
                     type=f"T{item['tache']}",
-                    source=source,
+                    source=source_alias,
                     year=year,
                     month=month,
                     suite=str(item["partie"]),
@@ -68,7 +67,7 @@ class SeikouFetcher(BaseQuestionFetcher):
                     tags=[],
                     slug=slug,
                     source_url=url,
-                    source_name=source_name,
+                    source_name=source_alias,
                 )
             )
         return result

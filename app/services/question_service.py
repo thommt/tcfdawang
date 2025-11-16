@@ -168,13 +168,12 @@ class QuestionService:
         if not source:
             return "QG"
         normalized = source.lower()
-        if "reussir" in normalized:
-            return "RE"
-        if "opal" in normalized:
-            return "OP"
-        if "tanpaku" in normalized:
-            return "TA"
-        if "seikou" in normalized:
-            return "SE"
+        prefix_map = {
+            "seikou": "RE",
+            "tanpaku": "OP",
+        }
+        for key, prefix in prefix_map.items():
+            if key in normalized:
+                return prefix
         cleaned = "".join(ch for ch in source if ch.isalpha())
         return (cleaned[:2] or "QG").upper()

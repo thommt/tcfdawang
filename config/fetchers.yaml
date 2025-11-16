@@ -1,13 +1,13 @@
 fetchers:
   - name: seikou
-    domains:
-      - reussir-tcfcanada.com
+    domain_hashes:
+      - 35840f6d3463cbcc3d3bbeddee1fe3f14f231b185b24052fbb63c8b080f48d23
     fetcher: app.fetchers.seikou:SeikouFetcher
     options:
-      source_name: "reussir-tcfcanada"
+      source_name: "seikou"
   - name: tanpaku
-    domains:
-      - tcf.opal-ca.net
+    domain_hashes:
+      - d7dccf4fa3f5cc49b97c543b7db1df20c842ff1977c70589a926c8ece503b867
     fetcher: app.fetchers.tanpaku:TanpakuFetcher
     options:
-      source_name: "opal-ca"
+      source_name: "tanpaku"

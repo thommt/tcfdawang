@@ -52,15 +52,14 @@ class TanpakuFetcher(BaseQuestionFetcher):
         questions: List[dict] = []
         for section in sections:
             questions.extend(self._parse_section(section))
-        source = urlparse(url).hostname or "unknown"
-        source_name = self.options.get("source_name", source)
+        source_alias = self.options.get("source_name") or (urlparse(url).hostname or "unknown")
         result: List[FetchedQuestion] = []
         for item in questions:
             slug = self._build_slug(year, month, item["tache"], item["combinaison"], item["sujet"])
             result.append(
                 FetchedQuestion(
                     type=f"T{item['tache']}",
-                    source=source,
+                    source=source_alias,
                     year=year,
                     month=month,
                     suite=item["combinaison"],
@@ -70,7 +69,7 @@ class TanpakuFetcher(BaseQuestionFetcher):
                     tags=[],
                     slug=slug,
                     source_url=url,
-                    source_name=source_name,
+                    source_name=source_alias,
                 )
             )
         return result

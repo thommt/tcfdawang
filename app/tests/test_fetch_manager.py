@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.fetchers.manager import FetchManager
+from app.fetchers.utils import hash_domain
 from app.models.fetch import FetchedQuestion
 from app.models.question import QuestionCreate
 from app.services.question_service import QuestionService
@@ -78,25 +79,24 @@ GENERIC_HTML = """
 """
 
 
+SEIKOU_DOMAIN = "alpha-seikou.local"
+TANPAKU_DOMAIN = "beta-tanpaku.local"
+
+
 @pytest.fixture()
 def fetch_config(tmp_path: Path) -> Path:
-    config_text = """
+    config_text = f"""
 fetchers:
   - name: seikou
-    domains: ["reussir-tcfcanada.com"]
+    domain_hashes: ["{hash_domain(SEIKOU_DOMAIN)}"]
     fetcher: app.fetchers.seikou:SeikouFetcher
     options:
-      source_name: "reussir-tcfcanada"
+      source_name: "seikou"
   - name: tanpaku
-    domains: ["tcf.opal-ca.net"]
+    domain_hashes: ["{hash_domain(TANPAKU_DOMAIN)}"]
     fetcher: app.fetchers.tanpaku:TanpakuFetcher
     options:
-      source_name: "opal-ca"
-  - name: generic
-    domains: ["*"]
-    fetcher: app.fetchers.generic:GenericFetcher
-    options:
-      source_name: "generic"
+      source_name: "tanpaku"
 """
     path = tmp_path / "fetchers.yaml"
     path.write_text(config_text, encoding="utf-8")
@@ -129,7 +129,7 @@ def test_fetch_manager_parses_questions(
         return DummyResponse(SAMPLE_HTML)
 
     monkeypatch.setattr("app.fetchers.seikou.requests.get", fake_get)
-    url = "https://reussir-tcfcanada.com/octobre-2025-expression-orale/"
+    url = f"https://{SEIKOU_DOMAIN}/octobre-2025-expression-orale/"
     results = fetch_manager.fetch_urls([url])
     assert len(results) == 1
     question = results[0]
@@ -152,7 +152,7 @@ def test_fetched_question_can_be_saved(
         return DummyResponse(SAMPLE_HTML)
 
     monkeypatch.setattr("app.fetchers.seikou.requests.get", fake_get)
-    url = "https://reussir-tcfcanada.com/octobre-2025-expression-orale/"
+    url = f"https://{SEIKOU_DOMAIN}/octobre-2025-expression-orale/"
     question = fetch_manager.fetch_urls([url])[0]
     service = QuestionService(session)
     payload = QuestionCreate(
@@ -178,11 +178,11 @@ def test_tanpaku_fetcher_parses_combinaisons(
     fetch_manager: FetchManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fake_get(url: str, headers=None, timeout=30):
-        assert "opal" in url
+        assert TANPAKU_DOMAIN in url
         return DummyResponse(OPAL_HTML)
 
     monkeypatch.setattr("app.fetchers.tanpaku.requests.get", fake_get)
-    url = "https://tcf.opal-ca.net/expression-orale-SEPTEMBRE-2025/"
+    url = f"https://{TANPAKU_DOMAIN}/expression-orale-SEPTEMBRE-2025/"
     questions = fetch_manager.fetch_urls([url])
     assert len(questions) == 2
     t2, t3 = questions
@@ -211,15 +211,15 @@ def test_bulk_save_after_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_get(url: str, headers=None, timeout=30):
-        if "opal" in url:
+        if TANPAKU_DOMAIN in url:
             return DummyResponse(OPAL_HTML)
         return DummyResponse(SAMPLE_HTML)
 
     monkeypatch.setattr("app.fetchers.seikou.requests.get", fake_get)
     monkeypatch.setattr("app.fetchers.tanpaku.requests.get", fake_get)
     urls = [
-        "https://reussir-tcfcanada.com/octobre-2025-expression-orale/",
-        "https://tcf.opal-ca.net/expression-orale-SEPTEMBRE-2025/",
+        f"https://{SEIKOU_DOMAIN}/octobre-2025-expression-orale/",
+        f"https://{TANPAKU_DOMAIN}/expression-orale-SEPTEMBRE-2025/",
     ]
     results = fetch_manager.fetch_urls(urls)
     assert len(results) == 3  # 1 + 2

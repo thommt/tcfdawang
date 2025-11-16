@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Type
 from urllib.parse import urlparse
 
 from app.fetchers.base import BaseQuestionFetcher
+from app.fetchers.utils import hash_domain, domain_suffixes
 from app.models.fetch import FetchedQuestion
 
 
@@ -32,10 +33,20 @@ class FetchManager:
 
     def _resolve_fetcher(self, url: str) -> Dict[str, Any]:
         hostname = urlparse(url).hostname or ""
-        normalized_host = hostname.lower()
+        hashed_candidates = {hash_domain(suffix) for suffix in domain_suffixes(hostname)}
         for entry in self.config.get("fetchers", []):
-            domains = [d.lower() for d in entry.get("domains", [])]
-            if any(normalized_host.endswith(domain) for domain in domains):
+            hashes = entry.get("domain_hashes") or []
+            # Legacy support: allow plain domains but convert to hashes immediately
+            if entry.get("domains"):
+                legacy_hashes = [
+                    "*" if d == "*" else hash_domain(d) for d in entry.get("domains", [])
+                ]
+                hashes = legacy_hashes
+                entry["domain_hashes"] = hashes
+                entry.pop("domains", None)
+            if "*" in hashes:
+                return entry
+            if any(h in hashed_candidates for h in hashes):
                 return entry
         raise ValueError(f"No fetcher configured for domain: {hostname}")
 
