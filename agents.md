@@ -36,6 +36,7 @@
 3. Backend 与 Frontend 通过 OpenAPI schema 协作；路由变更需更新 `spec.md` 和前端 API 客户端。
 4. LLM Orchestrator 提供最小可运行链路（含 Prompt 模板、解析器、假数据），QA Agent 基于此编写测试。
 5. Merge 前需运行：后端 pytest、前端单元/构建、lint（ruff/eslint），并附结果；涉及 Task/队列的改动需附上任务处理单测或集成测试。
+6. **提交粒度提醒**：当单次修改涉及多个模块（后端+前端、或跨越测试/文档等）时，Agent 应主动提醒尽早拆分 or 先行提交，避免一次 commit 变化过大。
 
 ## 4. LLM 流程约束
 

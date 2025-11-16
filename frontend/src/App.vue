@@ -1,7 +1,7 @@
 <template>
   <div class="app-shell">
     <header class="app-header">
-      <h1>TCF 学习系统</h1>
+      <h1>TCF 大王</h1>
     </header>
     <main>
       <RouterView />

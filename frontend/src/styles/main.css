@@ -8,3 +8,75 @@ body {
   margin: 0;
   background-color: #f0f2f5;
 }
+
+.questions-view {
+  padding: 1rem;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.toolbar .actions,
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.question-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.question-table th,
+.question-table td {
+  border: 1px solid #e2e8f0;
+  padding: 0.4rem;
+}
+
+.info {
+  margin: 1rem 0;
+}
+
+.error {
+  margin: 1rem 0;
+  color: #c53030;
+}
+
+dialog {
+  border: none;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.question-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.question-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+}
+
+.question-form input,
+.question-form select,
+.question-form textarea {
+  padding: 0.4rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+}
+
+.question-form .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

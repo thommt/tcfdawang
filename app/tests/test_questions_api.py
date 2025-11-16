@@ -40,14 +40,14 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
 def test_create_question(client: TestClient) -> None:
     payload = {
         "type": "T2",
-        "source": "reussir-tcfcanada",
+        "source": "mock",
         "year": 2025,
         "month": 10,
         "suite": "A",
         "number": "01",
         "title": "Titre de test",
         "body": "Contenu de test",
-        "tags": ["immigration", "ville"]
+        "tags": ["immigration", "ville"],
     }
     response = client.post("/questions", json=payload)
     assert response.status_code == 201
@@ -66,7 +66,7 @@ def test_list_questions(client: TestClient) -> None:
         "number": "02",
         "title": "Question 2",
         "body": "Texte",
-        "tags": []
+        "tags": [],
     }
     client.post("/questions", json=payload)
     response = client.get("/questions")
@@ -87,13 +87,13 @@ def test_update_question(client: TestClient) -> None:
         "number": "03",
         "title": "Original",
         "body": "Body",
-        "tags": ["alpha"]
+        "tags": ["alpha"],
     }
     created = client.post("/questions", json=payload).json()
     question_id = created["id"]
     update_payload = {
         "title": "Updated",
-        "tags": ["beta", "gamma"]
+        "tags": ["beta", "gamma"],
     }
     response = client.put(f"/questions/{question_id}", json=update_payload)
     assert response.status_code == 200
@@ -112,7 +112,7 @@ def test_delete_question(client: TestClient) -> None:
         "number": "04",
         "title": "Delete me",
         "body": "Body",
-        "tags": []
+        "tags": [],
     }
     created = client.post("/questions", json=payload).json()
     response = client.delete(f"/questions/{created['id']}")
@@ -132,7 +132,7 @@ def test_get_question(client: TestClient) -> None:
         "number": "05",
         "title": "Lookup",
         "body": "Body",
-        "tags": ["tag1"]
+        "tags": ["tag1"],
     }
     created = client.post("/questions", json=payload).json()
     question_id = created["id"]
@@ -158,7 +158,7 @@ def test_create_question_invalid_type(client: TestClient) -> None:
         "number": "06",
         "title": "Invalid type",
         "body": "Body",
-        "tags": []
+        "tags": [],
     }
     response = client.post("/questions", json=payload)
     assert response.status_code == 422
@@ -174,7 +174,7 @@ def test_create_question_duplicate(client: TestClient) -> None:
         "number": "07",
         "title": "Original",
         "body": "Body",
-        "tags": []
+        "tags": [],
     }
     client.post("/questions", json=payload)
     response = client.post("/questions", json=payload)
@@ -192,12 +192,12 @@ def test_update_question_tags_sync(client: TestClient) -> None:
         "number": "08",
         "title": "Tags sync",
         "body": "Body",
-        "tags": ["alpha", "beta"]
+        "tags": ["alpha", "beta"],
     }
     created = client.post("/questions", json=payload).json()
     question_id = created["id"]
     update_payload = {
-        "tags": ["beta", "gamma", "gamma", "  delta  "]
+        "tags": ["beta", "gamma", "gamma", "  delta  "],
     }
     response = client.put(f"/questions/{question_id}", json=update_payload)
     assert response.status_code == 200

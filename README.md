@@ -26,12 +26,14 @@
 uv sync --dev
 
 # 运行后端（根目录）
-uv run uvicorn app.main:app --reload
+# 若想模拟“前面有反向代理带 /api 前缀”的场景，可以：
+# uv run uvicorn app.main:app --reload --root-path /api
+# 这样 API 挂在 /api 下，与部署一致
 
 # 后端测试
 uv run pytest
 
-# 前端使用 pnpm
+# 前端使用 pnpm（默认通过 Vite proxy 访问 `http://localhost:8000/api`，如需自定义可设置 `VITE_API_BASE_URL`）
 cd frontend
 pnpm install
 pnpm dev

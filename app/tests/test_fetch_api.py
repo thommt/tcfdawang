@@ -49,7 +49,7 @@ def session() -> Generator[Session, None, None]:
 
 
 @pytest.fixture()
-def client(session: Session, monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+def client(session: Session) -> Generator[TestClient, None, None]:
     def override_session():
         yield session
 
@@ -82,3 +82,14 @@ def test_fetch_api_creates_task_and_results(client: TestClient) -> None:
     results = resp.json()
     assert len(results) == 1
     assert results[0]["title"] == "RE202511.T3.P01S01"
+
+
+def test_fetch_api_returns_error_on_failure(client: TestClient) -> None:
+    class FailingManager:
+        def fetch_urls(self, urls):
+            raise ValueError("No fetcher configured")
+
+    app.dependency_overrides[get_fetch_manager] = lambda: FailingManager()
+    response = client.post("/questions/fetch", json={"urls": ["https://unknown"]})
+    assert response.status_code == 400
+    assert "No fetcher" in response.json()["detail"]

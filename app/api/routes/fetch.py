@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, status
 from app.api.dependencies import get_session
 from app.api.dependencies import get_fetch_manager
 from app.models.fetch_task import FetchRequest, FetchResponse, TaskRead
+from fastapi import HTTPException
+
 from app.services.fetch_service import FetchTaskService
 
 
@@ -24,7 +26,10 @@ def fetch_questions(
     service: FetchTaskService = Depends(get_fetch_service),
 ) -> FetchResponse:
     task = service.create_fetch_task(payload.urls)
-    results = service.run_fetch_task(task)
+    try:
+        results = service.run_fetch_task(task)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     task_read = TaskRead.model_validate(task)
     return FetchResponse(task=task_read, results=results)
 

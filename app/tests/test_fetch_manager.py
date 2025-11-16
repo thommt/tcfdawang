@@ -64,6 +64,19 @@ OPAL_HTML = """
 </html>
 """
 
+GENERIC_HTML = """
+<html>
+  <head>
+    <title>Expression Orale Décembre 2025</title>
+  </head>
+  <body>
+    <h2>Tâche 3</h2>
+    <p>Sujet 1</p>
+    <p>Décrivez un événement marquant.</p>
+  </body>
+</html>
+"""
+
 
 @pytest.fixture()
 def fetch_config(tmp_path: Path) -> Path:
@@ -79,6 +92,11 @@ fetchers:
     fetcher: app.fetchers.tanpaku:TanpakuFetcher
     options:
       source_name: "opal-ca"
+  - name: generic
+    domains: ["*"]
+    fetcher: app.fetchers.generic:GenericFetcher
+    options:
+      source_name: "generic"
 """
     path = tmp_path / "fetchers.yaml"
     path.write_text(config_text, encoding="utf-8")
@@ -125,12 +143,6 @@ def test_fetch_manager_parses_questions(
     assert question.title == question.slug
     assert "environnement" in question.body
     assert question.source_url == url
-
-
-def test_fetch_manager_unknown_domain(fetch_manager: FetchManager) -> None:
-    url = "https://example.com/test"
-    with pytest.raises(ValueError):
-        fetch_manager.fetch_urls([url])
 
 
 def test_fetched_question_can_be_saved(
@@ -185,6 +197,12 @@ def test_tanpaku_fetcher_parses_combinaisons(
     assert t2.slug == "OP202509.T2.P01S01"
     assert t3.slug == "OP202509.T3.P02S01"
     assert t2.title == t2.slug
+
+
+def test_fetch_manager_unknown_domain(fetch_manager: FetchManager) -> None:
+    url = "https://example.com/test"
+    with pytest.raises(ValueError):
+        fetch_manager.fetch_urls([url])
 
 
 def test_bulk_save_after_fetch(

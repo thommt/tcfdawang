@@ -144,7 +144,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 4. Question 标签使用 `QuestionTag` 表维护，便于按标签过滤；导入/编辑题目时同步更新该表。
 
 ### 5.8 题目抓取（Web UI）
-1. 在题目管理界面提供“抓取题目”对话框，允许用户输入一个或多个 URL（例如若干站点的口语题页面）。前端将 URL 列表提交给后端 API（`POST /questions/fetch`），后端基于配置化抓取器（如 Seikou/Tanpaku）执行解析。
+1. 在题目管理界面提供“抓取题目”对话框，允许用户输入一个或多个 URL（例如若干站点的口语题页面）。前端将 URL 列表提交给后端 API（`POST /api/questions/fetch`），后端基于配置化抓取器（如 Seikou/Tanpaku）执行解析。
 2. 抓取规则：
    - 识别 “Tâche / Partie / Sujet” 层级，组合生成唯一 slug（例：`202510.T3.P1S2`）。
    - 自动解析页面标题中的月份/年份；若缺失可由用户通过界面补充。
@@ -157,7 +157,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - 定义 `BaseQuestionFetcher` 接口（输入：URL + 配置；输出：标准化的题目信息），具体站点可实现各自的解析逻辑。
    - 在 `config/fetchers.yaml`（或类似文件）中列出可用抓取器，配置项包括：匹配域名/路径、CSS 选择器、标题提取正则、Tâche/Partie/Sujet 层级解析规则等。
    - 后端 `fetch` 任务根据 URL 匹配到的配置加载对应抓取器，允许通过配置文件轻松调整解析规则，而不修改代码。
-   - 支持 fallback 抓取器（通用选择器/正则），用于快速尝试未知站点；若无法解析，返回带错误信息的结果并提示用户手动处理。
+   - 若 URL 不在配置范围内，则返回可解析的错误信息，由前端提示用户手动处理或后续配置新的抓取器。
 
 ### 5.9 Lexeme 管理与合并
 1. 前端提供“Lexeme 管理”页面，列出每个词/短语的 `lemma`, `sense_label`, `gloss`, 引用次数、收藏/SRS 状态。
@@ -214,8 +214,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - `POST /answers/{id}/structure-graph` 触发可选的篇章图分析任务
 - `GET /flashcards/due`、`POST /flashcards/{id}/result`
 - `GET /settings/user-profile`、`PUT /settings/user-profile`（全局考生人设配置，供 T2 生成使用）
-- `POST /questions/fetch`：根据 URL 列表触发抓取任务，返回任务信息+结果预览
-- `GET /questions/fetch/results`：根据 task_id 获取抓取结果列表
+- `POST /api/questions/fetch`：根据 URL 列表触发抓取任务，返回任务信息+结果预览
+- `GET /api/questions/fetch/results`：根据 task_id 获取抓取结果列表
 - `GET /tasks`、`GET /tasks/{id}`：查询后台任务状态；`POST /tasks/{id}/retry` 重试单个任务；`DELETE /tasks/{id}` 取消任务；`POST /answers/{id}/tasks` 以任务类型为参数补充未执行步骤
 - `GET /favorites`、`POST /favorites`、`DELETE /favorites/{id}`：收藏列表及操作
 - `GET /tags`（可选预设标签）、`GET /questions?tag=xxx`：基于 `QuestionTag` 表过滤；题目 CRUD 中需支持标签编辑
