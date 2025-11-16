@@ -14,6 +14,7 @@ class TaskRead(BaseModel):
     id: int
     type: str
     status: str
+    payload: dict
     result_summary: dict
     created_at: datetime
     updated_at: datetime

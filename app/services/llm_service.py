@@ -1,27 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import List, Optional
 
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+
+from app.llm import (
+    GeneratedQuestionMetadata,
+    build_metadata_chain,
+    build_evaluation_chain,
+)
 
 
 class LLMError(Exception):
     """Raised when the LLM client fails to return usable data."""
-
-
-@dataclass
-class GeneratedQuestionMetadata:
-    title: str
-    tags: List[str]
-
-
-class QuestionMetadataSchema(BaseModel):
-    title: str = Field(..., description="不超过20个汉字的简洁标题")
-    tags: List[str] = Field(default_factory=list, description="最多5个主题标签，每个不超过5个字")
 
 
 class QuestionLLMClient:
@@ -36,29 +27,14 @@ class QuestionLLMClient:
         self.model = model or "gpt-4o-mini"
         self.base_url = base_url.rstrip("/") if base_url else None
         self.timeout = timeout
-        self._parser = JsonOutputParser(pydantic_object=QuestionMetadataSchema)
-        self._prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    (
-                        "你是TCF Canada口语题目的小助手，请根据题干内容生成一个简洁的中文标题（不超过20个汉字），"
-                        "并给出最多5个主题标签（每个标签不超过5个字）。{format_instructions}"
-                    ),
-                ),
-                (
-                    "human",
-                    "题目类型: {question_type}\nSlug: {slug}\n现有标签: {existing_tags}\n题目正文如下:\n{body}",
-                ),
-            ]
-        )
         self._llm = ChatOpenAI(
             model=self.model,
             api_key=self.api_key,
             base_url=self.base_url,
             timeout=self.timeout,
         )
-        self._chain = self._prompt | self._llm | self._parser
+        self._metadata_chain, self._metadata_parser = build_metadata_chain(self._llm)
+        self._eval_chain, self._eval_parser = build_evaluation_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -70,13 +46,13 @@ class QuestionLLMClient:
     ) -> GeneratedQuestionMetadata:
         existing_tags = ", ".join(tags) if tags else "无"
         try:
-            result = self._chain.invoke(
+            result = self._metadata_chain.invoke(
                 {
                     "slug": slug or "未知",
                     "body": body,
                     "question_type": question_type,
                     "existing_tags": existing_tags,
-                    "format_instructions": self._parser.get_format_instructions(),
+                    "format_instructions": self._metadata_parser.get_format_instructions(),
                 }
             )
         except Exception as exc:  # pragma: no cover - LangChain errors depend on runtime env
@@ -96,3 +72,28 @@ class QuestionLLMClient:
                 if cleaned and cleaned not in normalized_tags:
                     normalized_tags.append(cleaned)
         return GeneratedQuestionMetadata(title=title, tags=normalized_tags[:5])
+
+    def evaluate_answer(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        answer_draft: str,
+    ) -> dict:
+        if not answer_draft:
+            raise LLMError("暂无可评估的草稿")
+        try:
+            result = self._eval_chain.invoke(
+                {
+                    "question_type": question_type,
+                    "question_title": question_title,
+                    "question_body": question_body,
+                    "answer_draft": answer_draft,
+                    "format_instructions": self._eval_parser.get_format_instructions(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+

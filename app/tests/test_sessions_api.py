@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
 from app.main import app
-from app.api.dependencies import get_session
+from app.api.dependencies import get_session, get_llm_client
 
 
 @pytest.fixture(name="session")
@@ -27,6 +27,11 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
     def override_get_session() -> Generator[Session, None, None]:
         yield session
 
+    class DummyLLM:
+        def evaluate_answer(self, **kwargs):
+            return {"feedback": "很好", "score": 4}
+
+    app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     app.dependency_overrides[get_session] = override_get_session
     test_client = TestClient(app)
     yield test_client
@@ -93,3 +98,18 @@ def test_create_answer_group_and_answer(client: TestClient) -> None:
     assert fetched_group.status_code == 200
     fetched_answer = client.get(f"/answers/{answer['id']}")
     assert fetched_answer.status_code == 200
+
+
+def test_run_eval_task(client: TestClient) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Je pense que..."},
+    )
+    session_id = session_resp.json()["id"]
+    task_resp = client.post(f"/sessions/{session_id}/tasks/eval")
+    assert task_resp.status_code == 201
+    task = task_resp.json()
+    assert task["type"] == "eval"
+    assert task["status"] == "succeeded"
+    assert task["result_summary"]["score"] == 4

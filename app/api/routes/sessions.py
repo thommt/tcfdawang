@@ -2,7 +2,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.dependencies import get_session
+from app.api.dependencies import get_session, get_llm_client
 from app.models.answer import (
     AnswerCreate,
     AnswerRead,
@@ -12,11 +12,19 @@ from app.models.answer import (
     SessionRead,
     SessionUpdate,
 )
+from app.models.fetch_task import TaskRead
 from app.services.session_service import SessionService
+from app.services.task_service import TaskService
 
 
 def get_session_service(db=Depends(get_session)) -> SessionService:
     return SessionService(db)
+
+
+def get_task_service(
+    db=Depends(get_session), llm_client=Depends(get_llm_client)
+) -> TaskService:
+    return TaskService(db, llm_client)
 
 
 sessions_router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -44,6 +52,13 @@ def update_session(
     service: SessionService = Depends(get_session_service),
 ) -> SessionRead:
     return service.update_session(session_id, payload)
+
+
+@sessions_router.post("/{session_id}/tasks/eval", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def run_eval_task(
+    session_id: int, task_service: TaskService = Depends(get_task_service)
+) -> TaskRead:
+    return task_service.run_eval_task(session_id)
 
 
 answer_group_router = APIRouter(prefix="/answer-groups", tags=["answer-groups"])
