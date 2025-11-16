@@ -21,6 +21,7 @@ export interface FetchTask {
   id: number;
   type: string;
   status: string;
+  payload: Record<string, unknown>;
   result_summary: Record<string, unknown>;
   created_at: string;
   updated_at: string;

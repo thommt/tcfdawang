@@ -1,4 +1,5 @@
 import { defineComponent, onMounted, ref, computed, watch } from 'vue';
+import { RouterLink } from 'vue-router';
 import QuestionForm from '../components/QuestionForm';
 import { useQuestionStore } from '../stores/questions';
 import type { QuestionPayload, Question } from '../types/question';
@@ -246,6 +247,9 @@ export default defineComponent({
                     <td>{item.tags.join(', ')}</td>
                     <td>
                       <button onClick={() => edit(item)}>编辑</button>
+                      <RouterLink class="link" to={`/questions/${item.id}`}>
+                        详情
+                      </RouterLink>
                       <button
                         onClick={() => generateMetadata(item.id)}
                         disabled={generatingId.value === item.id}
