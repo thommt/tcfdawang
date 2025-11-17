@@ -9,8 +9,10 @@ from app.llm.prompts import (
     METADATA_HUMAN_PROMPT,
     EVAL_SYSTEM_PROMPT,
     EVAL_HUMAN_PROMPT,
+    COMPOSE_SYSTEM_PROMPT,
+    COMPOSE_HUMAN_PROMPT,
 )
-from app.llm.schemas import QuestionMetadataSchema, EvaluationSchema
+from app.llm.schemas import QuestionMetadataSchema, EvaluationSchema, ComposeAnswerSchema
 
 
 def build_metadata_chain(llm: BaseChatModel):
@@ -31,6 +33,18 @@ def build_evaluation_chain(llm: BaseChatModel):
         [
             ("system", EVAL_SYSTEM_PROMPT),
             ("human", EVAL_HUMAN_PROMPT),
+        ]
+    )
+    chain = prompt | llm | parser
+    return chain, parser
+
+
+def build_compose_chain(llm: BaseChatModel):
+    parser = JsonOutputParser(pydantic_object=ComposeAnswerSchema)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", COMPOSE_SYSTEM_PROMPT),
+            ("human", COMPOSE_HUMAN_PROMPT),
         ]
     )
     chain = prompt | llm | parser

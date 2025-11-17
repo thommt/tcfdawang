@@ -7,6 +7,7 @@ import {
   createSession as createSessionApi,
   updateSession as updateSessionApi,
   runEvalTask,
+  runComposeTask,
   finalizeSession as finalizeSessionApi,
 } from '../api/sessions';
 
@@ -76,6 +77,12 @@ export const useSessionStore = defineStore('sessions', {
     },
     async triggerEval(sessionId: number) {
       const task = await runEvalTask(sessionId);
+      this.lastTask = task;
+      await this.loadSession(sessionId);
+      return task;
+    },
+    async composeAnswer(sessionId: number) {
+      const task = await runComposeTask(sessionId);
       this.lastTask = task;
       await this.loadSession(sessionId);
       return task;

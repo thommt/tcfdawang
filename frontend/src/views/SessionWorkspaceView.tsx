@@ -58,6 +58,11 @@ export default defineComponent({
       }
     );
 
+    const lastCompose = computed(() => {
+      const compose = session.value?.progress_state?.last_compose as Record<string, unknown> | undefined;
+      return compose ?? null;
+    });
+
     async function saveDraft() {
       if (!session.value) return;
       saving.value = true;
@@ -75,6 +80,22 @@ export default defineComponent({
         await sessionStore.triggerEval(session.value.id);
       } finally {
         evalRunning.value = false;
+      }
+    }
+
+    const composing = ref(false);
+
+    async function composeAnswer() {
+      if (!session.value) return;
+      composing.value = true;
+      try {
+        const task = await sessionStore.composeAnswer(session.value.id);
+        const summary = task.result_summary as Record<string, string>;
+        answerTitle.value = summary?.title ?? question.value?.title ?? '';
+        answerText.value = summary?.text ?? draft.value;
+        showFinalize.value = true;
+      } finally {
+        composing.value = false;
       }
     }
 
@@ -136,6 +157,9 @@ export default defineComponent({
             <button onClick={evaluate} disabled={evalRunning.value || sessionCompleted.value}>
               {evalRunning.value ? '评估中...' : '请求评估'}
             </button>
+            <button onClick={composeAnswer} disabled={composing.value || sessionCompleted.value}>
+              {composing.value ? '生成中...' : 'LLM 生成答案'}
+            </button>
             <button type="button" onClick={openFinalize} disabled={sessionCompleted.value}>
               {sessionCompleted.value ? '已完成' : '完成 Session'}
             </button>
@@ -153,6 +177,15 @@ export default defineComponent({
             <p>尚未进行评估。</p>
           )}
         </section>
+        {lastCompose.value && (
+          <section class="compose-panel">
+            <h3>LLM 生成的答案</h3>
+            <article>
+              <strong>{(lastCompose.value as Record<string, unknown>).title as string}</strong>
+              <p>{(lastCompose.value as Record<string, unknown>).text as string}</p>
+            </article>
+          </section>
+        )}
         {showFinalize.value && (
           <section class="finalize-panel">
             <h3>确认答案</h3>

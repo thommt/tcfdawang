@@ -62,6 +62,13 @@ def run_eval_task(
     return task_service.run_eval_task(session_id)
 
 
+@sessions_router.post("/{session_id}/tasks/compose", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def run_compose_task(
+    session_id: int, task_service: TaskService = Depends(get_task_service)
+) -> TaskRead:
+    return task_service.run_compose_task(session_id)
+
+
 @sessions_router.post("/{session_id}/finalize", response_model=SessionRead)
 def finalize_session(
     session_id: int,

@@ -72,4 +72,26 @@ describe('Session Store', () => {
     expect(store.currentSession?.status).toBe('completed');
     finalizeSpy.mockRestore();
   });
+
+  it('composes answer via LLM task', async () => {
+    vi.spyOn(api, 'fetchSessionById').mockResolvedValue({
+      ...mockSession,
+      progress_state: { last_compose: { title: '标题', text: '内容' } },
+    });
+    const composeSpy = vi.spyOn(api, 'runComposeTask').mockResolvedValue({
+      id: 100,
+      type: 'compose',
+      status: 'succeeded',
+      payload: { session_id: 1 },
+      result_summary: { title: '标题', text: '内容' },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    const store = useSessionStore();
+    store.sessions = [mockSession];
+    store.currentSession = mockSession;
+    await store.composeAnswer(1);
+    expect(composeSpy).toHaveBeenCalledWith(1);
+    composeSpy.mockRestore();
+  });
 });

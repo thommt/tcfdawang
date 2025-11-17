@@ -116,6 +116,24 @@ def test_run_eval_task(client: TestClient) -> None:
     assert task["result_summary"]["score"] == 4
 
 
+def test_run_compose_task(client: TestClient) -> None:
+    class DummyLLM:
+        def evaluate_answer(self, **kwargs):
+            return {"feedback": "很好", "score": 4}
+
+        def compose_answer(self, **kwargs):
+            return {"title": "标题", "text": "Mon texte"}
+
+    app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
+    question_id = _create_question(client)
+    session_resp = client.post("/sessions", json={"question_id": question_id}).json()
+    task_resp = client.post(f"/sessions/{session_resp['id']}/tasks/compose")
+    assert task_resp.status_code == 201
+    data = task_resp.json()
+    assert data["type"] == "compose"
+    assert data["result_summary"]["text"] == "Mon texte"
+
+
 def test_finalize_session_creates_answer(client: TestClient, session: Session) -> None:
     question_id = _create_question(client)
     session_resp = client.post(

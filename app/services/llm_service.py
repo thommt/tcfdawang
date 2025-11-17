@@ -8,6 +8,7 @@ from app.llm import (
     GeneratedQuestionMetadata,
     build_metadata_chain,
     build_evaluation_chain,
+    build_compose_chain,
 )
 
 
@@ -35,6 +36,7 @@ class QuestionLLMClient:
         )
         self._metadata_chain, self._metadata_parser = build_metadata_chain(self._llm)
         self._eval_chain, self._eval_parser = build_evaluation_chain(self._llm)
+        self._compose_chain, self._compose_parser = build_compose_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -97,3 +99,24 @@ class QuestionLLMClient:
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
         return result
 
+    def compose_answer(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        answer_draft: str,
+    ) -> dict:
+        try:
+            result = self._compose_chain.invoke(
+                {
+                    "question_type": question_type,
+                    "question_title": question_title,
+                    "question_body": question_body,
+                    "answer_draft": answer_draft,
+                    "format_instructions": self._compose_parser.get_format_instructions(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result

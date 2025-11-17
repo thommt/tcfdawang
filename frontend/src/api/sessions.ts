@@ -29,6 +29,11 @@ export async function runEvalTask(sessionId: number): Promise<FetchTask> {
   return response.data;
 }
 
+export async function runComposeTask(sessionId: number): Promise<FetchTask> {
+  const response = await apiClient.post<FetchTask>(`${resource}/${sessionId}/tasks/compose`, {});
+  return response.data;
+}
+
 export async function finalizeSession(
   sessionId: number,
   payload: SessionFinalizePayload
