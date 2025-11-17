@@ -53,6 +53,8 @@ pnpm test:e2e
 
 元数据生成功能基于 LangChain（ChatOpenAI + JSON 输出解析），无需手写 HTTP 调用；前端在题目管理列表中每行都可以点击 “LLM 生成标题/标签” 调用 `POST /questions/{id}/generate-metadata`，服务端会写入新的中文标题以及最多 5 个标签。
 
+> 注意：项目会在启动时通过 `python-dotenv` 自动加载 `.env` 文件，只需复制 `.env.example` 后填入上述变量即可，无需手动 `export`。
+
 ## Fetcher 域名哈希
 
 抓取器不会在仓库中保存明文站点域名，`config/fetchers.yaml` 中的 `domain_hashes` 是域名（小写、去空格）的 SHA-256 哈希值。可用下面的脚本生成：
