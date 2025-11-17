@@ -132,6 +132,16 @@ class SessionService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer group not found")
         return self._to_answer_group_read(group)
 
+    def list_answer_groups(self, question_id: int) -> List[AnswerGroupRead]:
+        self._ensure_question_exists(question_id)
+        statement = (
+            select(AnswerGroupSchema)
+            .where(AnswerGroupSchema.question_id == question_id)
+            .order_by(AnswerGroupSchema.created_at)
+        )
+        groups = self.session.exec(statement).all()
+        return [self._to_answer_group_read(group, include_answers=True) for group in groups]
+
     # Answer operations
     def create_answer(self, data: AnswerCreate) -> AnswerRead:
         self._ensure_answer_group_exists(data.answer_group_id)
@@ -192,16 +202,21 @@ class SessionService:
             completed_at=session.completed_at,
         )
 
-    def _to_answer_group_read(self, group: AnswerGroupSchema) -> AnswerGroupRead:
-        return AnswerGroupRead(
-            id=group.id,
-            question_id=group.question_id,
-            slug=group.slug,
-            title=group.title,
-            descriptor=group.descriptor,
-            dialogue_profile=group.dialogue_profile,
-            created_at=group.created_at,
-        )
+    def _to_answer_group_read(self, group: AnswerGroupSchema, include_answers: bool = False) -> AnswerGroupRead:
+        data = group.model_dump()
+        data["created_at"] = group.created_at
+        if include_answers:
+            answers = (
+                self.session.exec(
+                    select(AnswerSchema)
+                    .where(AnswerSchema.answer_group_id == group.id)
+                    .order_by(AnswerSchema.version_index)
+                ).all()
+            )
+            data["answers"] = [self._to_answer_read(ans) for ans in answers]
+        else:
+            data["answers"] = []
+        return AnswerGroupRead(**data)
 
     def _to_answer_read(self, answer: AnswerSchema) -> AnswerRead:
         return AnswerRead(

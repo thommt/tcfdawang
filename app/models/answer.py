@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional, Literal, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class AnswerGroupBase(BaseModel):
@@ -19,6 +21,8 @@ class AnswerGroupCreate(AnswerGroupBase):
 class AnswerGroupRead(AnswerGroupBase):
     id: int
     created_at: datetime
+    answers: List['AnswerRead'] = Field(default_factory=list)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnswerBase(BaseModel):
@@ -36,6 +40,7 @@ class AnswerCreate(AnswerBase):
 class AnswerRead(AnswerBase):
     id: int
     created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnswerUpdate(BaseModel):

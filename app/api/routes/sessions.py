@@ -94,6 +94,11 @@ def get_answer_group(group_id: int, service: SessionService = Depends(get_sessio
     return service.get_answer_group(group_id)
 
 
+@answer_group_router.get("/by-question/{question_id}", response_model=List[AnswerGroupRead])
+def list_answer_groups(question_id: int, service: SessionService = Depends(get_session_service)) -> List[AnswerGroupRead]:
+    return service.list_answer_groups(question_id)
+
+
 answers_router = APIRouter(prefix="/answers", tags=["answers"])
 
 

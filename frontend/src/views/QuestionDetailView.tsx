@@ -4,6 +4,8 @@ import { useQuestionStore } from '../stores/questions';
 import { useSessionStore } from '../stores/sessions';
 import type { Question } from '../types/question';
 import { fetchQuestionById } from '../api/questions';
+import { fetchAnswerGroups } from '../api/answerGroups';
+import type { AnswerGroup } from '../types/answer';
 
 export default defineComponent({
   name: 'QuestionDetailView',
@@ -16,6 +18,8 @@ export default defineComponent({
     const question = ref<Question | null>(null);
     const loading = ref(true);
     const error = ref('');
+    const answerGroups = ref<AnswerGroup[]>([]);
+    const groupLoading = ref(false);
 
     const relatedSessions = computed(() => sessionStore.sessionsByQuestion(questionId));
 
@@ -31,6 +35,9 @@ export default defineComponent({
           question.value = fetched;
           questionStore.items.push(fetched);
         }
+        groupLoading.value = true;
+        answerGroups.value = await fetchAnswerGroups(questionId);
+        groupLoading.value = false;
         if (!sessionStore.sessions.length) {
           await sessionStore.loadSessions();
         }
@@ -116,6 +123,30 @@ export default defineComponent({
             </table>
           ) : (
             <p>该题目前还没有 Session。</p>
+          )}
+        </section>
+
+        <section class="answer-groups">
+          <header>
+            <h3>答案组</h3>
+          </header>
+          {groupLoading.value && <p>加载答案组...</p>}
+          {!groupLoading.value && answerGroups.value.length ? (
+            answerGroups.value.map((group) => (
+              <article key={group.id} class="answer-group">
+                <h4>{group.title}</h4>
+                <p>共 {group.answers.length} 个版本</p>
+                <ul>
+                  {group.answers.map((answer) => (
+                    <li key={answer.id}>
+                      <strong>V{answer.version_index}:</strong> {answer.title}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))
+          ) : (
+            !groupLoading.value && <p>暂无答案。</p>
           )}
         </section>
       </section>

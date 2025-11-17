@@ -164,3 +164,9 @@ def test_finalize_session_creates_answer(client: TestClient, session: Session) -
     assert resp.status_code == 200
     answers = session.exec(select(Answer).where(Answer.answer_group_id == groups[0].id)).all()
     assert len(answers) == 2
+
+    list_resp = client.get(f"/answer-groups/by-question/{question_id}")
+    assert list_resp.status_code == 200
+    data = list_resp.json()
+    assert len(data) == 1
+    assert len(data[0]["answers"]) == 2
