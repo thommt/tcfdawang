@@ -20,6 +20,7 @@ def init_db() -> None:
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
     _ensure_session_columns(engine)
+    _ensure_task_columns(engine)
 
 
 def _ensure_session_columns(engine) -> None:
@@ -32,3 +33,11 @@ def _ensure_session_columns(engine) -> None:
                     "ALTER TABLE sessions ADD COLUMN updated_at TIMESTAMP"
                 )
             )
+
+
+def _ensure_task_columns(engine) -> None:
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info('tasks')"))
+        columns = {row[1] for row in result}
+        if "session_id" not in columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN session_id INTEGER"))

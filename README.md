@@ -68,4 +68,8 @@ PY
 
 把生成的哈希填入 `domain_hashes`，抓取时程序会对输入 URL 的域名做同样处理以匹配对应的 fetcher。
 
+## 任务中心
+
+后端提供了 `/tasks` API，可按 `session_id`、`question_id`、`task_type`、`status` 查询任务列表；前端 `/tasks` 页面展示所有 LLM 评估/生成等任务，便于查看状态与跳转到对应 Session。
+
 后续将依照 spec 分阶段实现 LLM 流程、抓取页面、收藏/播放列表等功能。

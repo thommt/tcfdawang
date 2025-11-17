@@ -24,6 +24,11 @@ const routes: RouteRecordRaw[] = [
     path: '/answers/:id',
     name: 'answer-detail',
     component: () => import('../views/AnswerDetailView')
+  },
+  {
+    path: '/tasks',
+    name: 'tasks',
+    component: () => import('../views/TaskListView')
   }
 ];
 

@@ -28,7 +28,7 @@ class TaskService:
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-        task = Task(type="eval", status="pending", payload={"session_id": session_id})
+        task = Task(type="eval", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
         self.session.commit()
         self.session.refresh(task)
@@ -80,7 +80,7 @@ class TaskService:
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-        task = Task(type="compose", status="pending", payload={"session_id": session_id})
+        task = Task(type="compose", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
         self.session.commit()
         self.session.refresh(task)
