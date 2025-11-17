@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import type { Session, SessionPayload } from '../types/session';
+import type { Session, SessionPayload, SessionFinalizePayload } from '../types/session';
 import type { FetchTask } from '../types/question';
 import {
   fetchSessions,
@@ -7,6 +7,7 @@ import {
   createSession as createSessionApi,
   updateSession as updateSessionApi,
   runEvalTask,
+  finalizeSession as finalizeSessionApi,
 } from '../api/sessions';
 
 interface State {
@@ -78,6 +79,12 @@ export const useSessionStore = defineStore('sessions', {
       this.lastTask = task;
       await this.loadSession(sessionId);
       return task;
+    },
+    async finalizeSession(sessionId: number, payload: SessionFinalizePayload) {
+      const session = await finalizeSessionApi(sessionId, payload);
+      this.currentSession = session;
+      this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
+      return session;
     },
     sessionsByQuestion(questionId: number) {
       return this.sessions.filter((session) => session.question_id === questionId);

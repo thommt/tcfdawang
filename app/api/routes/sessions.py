@@ -11,6 +11,7 @@ from app.models.answer import (
     SessionCreate,
     SessionRead,
     SessionUpdate,
+    SessionFinalizePayload,
 )
 from app.models.fetch_task import TaskRead
 from app.services.session_service import SessionService
@@ -59,6 +60,15 @@ def run_eval_task(
     session_id: int, task_service: TaskService = Depends(get_task_service)
 ) -> TaskRead:
     return task_service.run_eval_task(session_id)
+
+
+@sessions_router.post("/{session_id}/finalize", response_model=SessionRead)
+def finalize_session(
+    session_id: int,
+    payload: SessionFinalizePayload,
+    service: SessionService = Depends(get_session_service),
+) -> SessionRead:
+    return service.finalize_session(session_id, payload)
 
 
 answer_group_router = APIRouter(prefix="/answer-groups", tags=["answer-groups"])

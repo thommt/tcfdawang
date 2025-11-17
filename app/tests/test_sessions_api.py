@@ -3,10 +3,11 @@ from typing import Generator
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.main import app
 from app.api.dependencies import get_session, get_llm_client
+from app.db.schemas import AnswerGroup, Answer
 
 
 @pytest.fixture(name="session")
@@ -113,3 +114,35 @@ def test_run_eval_task(client: TestClient) -> None:
     assert task["type"] == "eval"
     assert task["status"] == "succeeded"
     assert task["result_summary"]["score"] == 4
+
+
+def test_finalize_session_creates_answer(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Bonjour"},
+    ).json()
+    finalize_payload = {
+        "group_title": "家庭题",
+        "answer_title": "答案版本1",
+        "answer_text": "Ceci est une réponse.",
+    }
+    finalize_resp = client.post(f"/sessions/{session_resp['id']}/finalize", json=finalize_payload)
+    assert finalize_resp.status_code == 200
+    data = finalize_resp.json()
+    assert data["status"] == "completed"
+    groups = session.exec(select(AnswerGroup)).all()
+    assert len(groups) == 1
+    answers = session.exec(select(Answer)).all()
+    assert len(answers) == 1
+
+    second_session = client.post("/sessions", json={"question_id": question_id}).json()
+    reuse_payload = {
+        "answer_group_id": groups[0].id,
+        "answer_title": "答案版本2",
+        "answer_text": "Deuxième réponse.",
+    }
+    resp = client.post(f"/sessions/{second_session['id']}/finalize", json=reuse_payload)
+    assert resp.status_code == 200
+    answers = session.exec(select(Answer).where(Answer.answer_group_id == groups[0].id)).all()
+    assert len(answers) == 2

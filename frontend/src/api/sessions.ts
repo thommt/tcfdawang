@@ -1,5 +1,5 @@
 import apiClient from './http';
-import type { Session, SessionPayload } from '../types/session';
+import type { Session, SessionPayload, SessionFinalizePayload } from '../types/session';
 import type { FetchTask } from '../types/question';
 
 const resource = '/sessions';
@@ -26,5 +26,13 @@ export async function updateSession(id: number, payload: Partial<SessionPayload>
 
 export async function runEvalTask(sessionId: number): Promise<FetchTask> {
   const response = await apiClient.post<FetchTask>(`${resource}/${sessionId}/tasks/eval`, {});
+  return response.data;
+}
+
+export async function finalizeSession(
+  sessionId: number,
+  payload: SessionFinalizePayload
+): Promise<Session> {
+  const response = await apiClient.post<Session>(`${resource}/${sessionId}/finalize`, payload);
   return response.data;
 }

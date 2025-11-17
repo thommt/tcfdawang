@@ -68,3 +68,12 @@ class SessionUpdate(BaseModel):
     status: Optional[str] = None
     user_answer_draft: Optional[str] = None
     progress_state: Optional[dict] = None
+
+
+class SessionFinalizePayload(BaseModel):
+    answer_group_id: Optional[int] = None
+    group_title: Optional[str] = None
+    group_descriptor: Optional[str] = None
+    dialogue_profile: Optional[dict] = None
+    answer_title: str
+    answer_text: str

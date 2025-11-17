@@ -17,6 +17,15 @@ export interface Session extends SessionPayload {
   completed_at: string | null;
 }
 
+export interface SessionFinalizePayload {
+  group_title?: string;
+  answer_group_id?: number;
+  group_descriptor?: string;
+  dialogue_profile?: Record<string, unknown>;
+  answer_title: string;
+  answer_text: string;
+}
+
 export interface AnswerGroupPayload {
   question_id: number;
   slug?: string | null;

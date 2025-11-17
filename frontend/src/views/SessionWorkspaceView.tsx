@@ -16,7 +16,14 @@ export default defineComponent({
     const draft = ref('');
     const saving = ref(false);
     const evalRunning = ref(false);
+    const finalizing = ref(false);
     const question = ref<Question | null>(null);
+
+    const showFinalize = ref(false);
+    const answerTitle = ref('');
+    const answerText = ref('');
+
+    const sessionCompleted = computed(() => session.value?.status === 'completed');
 
     const session = computed<Session | null>(() => sessionStore.currentSession);
     const lastEval = computed(() => {
@@ -71,6 +78,27 @@ export default defineComponent({
       }
     }
 
+    function openFinalize() {
+      if (sessionCompleted.value) return;
+      showFinalize.value = true;
+      answerTitle.value = question.value?.title ?? '';
+      answerText.value = draft.value;
+    }
+
+    async function finalize() {
+      if (!session.value) return;
+      finalizing.value = true;
+      try {
+        await sessionStore.finalizeSession(session.value.id, {
+          answer_title: answerTitle.value || '最终答案',
+          answer_text: answerText.value || draft.value,
+        });
+        showFinalize.value = false;
+      } finally {
+        finalizing.value = false;
+      }
+    }
+
     onMounted(() => {
       loadData();
     });
@@ -102,11 +130,14 @@ export default defineComponent({
             ></textarea>
           </label>
           <div class="actions">
-            <button onClick={saveDraft} disabled={saving.value}>
+            <button onClick={saveDraft} disabled={saving.value || sessionCompleted.value}>
               {saving.value ? '保存中...' : '保存草稿'}
             </button>
-            <button onClick={evaluate} disabled={evalRunning.value}>
+            <button onClick={evaluate} disabled={evalRunning.value || sessionCompleted.value}>
               {evalRunning.value ? '评估中...' : '请求评估'}
+            </button>
+            <button type="button" onClick={openFinalize} disabled={sessionCompleted.value}>
+              {sessionCompleted.value ? '已完成' : '完成 Session'}
             </button>
           </div>
         </section>
@@ -122,6 +153,31 @@ export default defineComponent({
             <p>尚未进行评估。</p>
           )}
         </section>
+        {showFinalize.value && (
+          <section class="finalize-panel">
+            <h3>确认答案</h3>
+            <label>
+              <span>答案标题</span>
+              <input value={answerTitle.value} onInput={(e) => (answerTitle.value = (e.target as HTMLInputElement).value)} />
+            </label>
+            <label>
+              <span>答案内容</span>
+              <textarea
+                rows={6}
+                value={answerText.value || draft.value}
+                onInput={(e) => (answerText.value = (e.target as HTMLTextAreaElement).value)}
+              ></textarea>
+            </label>
+            <div class="actions">
+              <button type="button" onClick={() => (showFinalize.value = false)}>
+                取消
+              </button>
+              <button type="button" onClick={finalize} disabled={finalizing.value}>
+                {finalizing.value ? '提交中...' : '确认并生成答案'}
+              </button>
+            </div>
+          </section>
+        )}
       </section>
     );
   },

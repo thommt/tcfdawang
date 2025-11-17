@@ -55,4 +55,21 @@ describe('Session Store', () => {
     evalSpy.mockRestore();
     sessionSpy.mockRestore();
   });
+
+  it('finalizes session', async () => {
+    const finalizeSpy = vi.spyOn(api, 'finalizeSession').mockResolvedValue({
+      ...mockSession,
+      status: 'completed',
+      answer_id: 2,
+      completed_at: new Date().toISOString(),
+    });
+    const store = useSessionStore();
+    store.sessions = [mockSession];
+    store.currentSession = mockSession;
+    const payload = { answer_title: 'Final', answer_text: 'Body' };
+    await store.finalizeSession(1, payload);
+    expect(finalizeSpy).toHaveBeenCalledWith(1, payload);
+    expect(store.currentSession?.status).toBe('completed');
+    finalizeSpy.mockRestore();
+  });
 });
