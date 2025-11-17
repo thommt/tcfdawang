@@ -140,6 +140,9 @@ export default defineComponent({
                   {group.answers.map((answer) => (
                     <li key={answer.id}>
                       <strong>V{answer.version_index}:</strong> {answer.title}
+                      <RouterLink style="margin-left: 0.5rem;" to={`/answers/${answer.id}`}>
+                        查看
+                      </RouterLink>
                     </li>
                   ))}
                 </ul>

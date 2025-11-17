@@ -19,6 +19,11 @@ const routes: RouteRecordRaw[] = [
     path: '/sessions/:id',
     name: 'session-workspace',
     component: () => import('../views/SessionWorkspaceView')
+  },
+  {
+    path: '/answers/:id',
+    name: 'answer-detail',
+    component: () => import('../views/AnswerDetailView')
   }
 ];
 
