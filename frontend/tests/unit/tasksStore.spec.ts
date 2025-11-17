@@ -28,4 +28,28 @@ describe('Task Store', () => {
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
+
+  it('retries task', async () => {
+    vi.spyOn(api, 'fetchTasks').mockResolvedValue([mockTask]);
+    const retrySpy = vi.spyOn(api, 'retryTask').mockResolvedValue({
+      ...mockTask,
+      id: 2,
+    });
+    const store = useTaskStore();
+    await store.retry(1);
+    expect(retrySpy).toHaveBeenCalledWith(1);
+    retrySpy.mockRestore();
+  });
+
+  it('cancels task', async () => {
+    vi.spyOn(api, 'fetchTasks').mockResolvedValue([mockTask]);
+    const cancelSpy = vi.spyOn(api, 'cancelTask').mockResolvedValue({
+      ...mockTask,
+      status: 'canceled',
+    });
+    const store = useTaskStore();
+    await store.cancel(1);
+    expect(cancelSpy).toHaveBeenCalledWith(1);
+    cancelSpy.mockRestore();
+  });
 });

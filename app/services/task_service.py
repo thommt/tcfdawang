@@ -124,3 +124,30 @@ class TaskService:
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
+
+    def retry_task(self, task_id: int) -> TaskRead:
+        task = self._get_task(task_id)
+        if not task.session_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task not linked to session")
+        if task.type == "eval":
+            return self.run_eval_task(task.session_id)
+        if task.type == "compose":
+            return self.run_compose_task(task.session_id)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported task type for retry")
+
+    def cancel_task(self, task_id: int) -> TaskRead:
+        task = self._get_task(task_id)
+        if task.status not in {"pending", "failed"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task cannot be canceled")
+        task.status = "canceled"
+        task.updated_at = datetime.now(timezone.utc)
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        return TaskRead.model_validate(task)
+
+    def _get_task(self, task_id: int) -> Task:
+        task = self.session.get(Task, task_id)
+        if not task:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        return task

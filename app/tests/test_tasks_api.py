@@ -101,3 +101,24 @@ def test_get_task_detail(client: TestClient, session: Session) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == task.id
+
+
+def test_retry_task(client: TestClient, session: Session) -> None:
+    session_id = _create_question(session)
+    resp = client.post(f"/sessions/{session_id}/tasks/eval")
+    assert resp.status_code == 201
+    task_id = resp.json()["id"]
+    retry_resp = client.post(f"/tasks/{task_id}/retry")
+    assert retry_resp.status_code == 201
+    assert retry_resp.json()["type"] == "eval"
+
+
+def test_cancel_task(client: TestClient, session: Session) -> None:
+    session_id = _create_question(session)
+    task = Task(type="eval", status="pending", session_id=session_id, payload={"session_id": session_id})
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    cancel_resp = client.post(f"/tasks/{task.id}/cancel")
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["status"] == "canceled"

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import type { FetchTask } from '../types/question';
 import type { TaskQueryParams } from '../api/tasks';
-import { fetchTasks } from '../api/tasks';
+import { fetchTasks, retryTask, cancelTask } from '../api/tasks';
 
 interface State {
   items: FetchTask[];
@@ -30,6 +30,16 @@ export const useTaskStore = defineStore('tasks', {
       } finally {
         this.loading = false;
       }
+    },
+    async retry(taskId: number) {
+      const task = await retryTask(taskId);
+      await this.load(this.filters);
+      return task;
+    },
+    async cancel(taskId: number) {
+      const task = await cancelTask(taskId);
+      await this.load(this.filters);
+      return task;
     },
   },
 });
