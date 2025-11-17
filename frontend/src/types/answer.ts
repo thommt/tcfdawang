@@ -18,3 +18,24 @@ export interface AnswerGroup {
   created_at: string;
   answers: Answer[];
 }
+
+export interface Sentence {
+  id: number;
+  paragraph_id: number;
+  order_index: number;
+  text: string;
+  translation?: string | null;
+  extra: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Paragraph {
+  id: number;
+  answer_id: number;
+  order_index: number;
+  role_label?: string | null;
+  summary?: string | null;
+  extra: Record<string, unknown>;
+  created_at: string;
+  sentences: Sentence[];
+}

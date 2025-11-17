@@ -3,8 +3,8 @@ import { useRoute, RouterLink } from 'vue-router';
 import { fetchAnswerById } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
-import type { Answer } from '../types/answer';
-import type { AnswerGroup } from '../types/answer';
+import { fetchParagraphsByAnswer } from '../api/paragraphs';
+import type { Answer, AnswerGroup, Paragraph } from '../types/answer';
 import type { Question } from '../types/question';
 
 export default defineComponent({
@@ -17,6 +17,7 @@ export default defineComponent({
     const question = ref<Question | null>(null);
     const loading = ref(true);
     const error = ref('');
+    const paragraphs = ref<Paragraph[]>([]);
 
     async function load() {
       loading.value = true;
@@ -25,6 +26,7 @@ export default defineComponent({
         answer.value = await fetchAnswerById(answerId);
         group.value = await fetchAnswerGroupById(answer.value.answer_group_id);
         question.value = await fetchQuestionById(group.value.question_id);
+        paragraphs.value = await fetchParagraphsByAnswer(answerId);
       } catch (err) {
         error.value = '无法加载答案详情';
         throw err;
@@ -68,6 +70,29 @@ export default defineComponent({
             <p class="timestamp">创建时间：{new Date(answer.value.created_at).toLocaleString()}</p>
             <pre>{answer.value.text}</pre>
           </article>
+        )}
+        {paragraphs.value.length > 0 && (
+          <section class="paragraphs">
+            <h4>段落结构</h4>
+            {paragraphs.value.map((paragraph) => (
+              <article key={paragraph.id} class="paragraph-card">
+                <header>
+                  <strong>
+                    #{paragraph.order_index} {paragraph.role_label}
+                  </strong>
+                  {paragraph.summary && <p>{paragraph.summary}</p>}
+                </header>
+                <ol>
+                  {paragraph.sentences.map((sentence) => (
+                    <li key={sentence.id}>
+                      {sentence.text}
+                      {sentence.translation && <em>（{sentence.translation}）</em>}
+                    </li>
+                  ))}
+                </ol>
+              </article>
+            ))}
+          </section>
         )}
       </section>
     );

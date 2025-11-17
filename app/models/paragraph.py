@@ -1,0 +1,29 @@
+from datetime import datetime
+from typing import Optional, List
+
+from pydantic import BaseModel, Field, ConfigDict
+
+
+class SentenceRead(BaseModel):
+    id: int
+    paragraph_id: int
+    order_index: int
+    text: str
+    translation: Optional[str] = None
+    extra: dict = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ParagraphRead(BaseModel):
+    id: int
+    answer_id: int
+    order_index: int
+    role_label: Optional[str] = None
+    summary: Optional[str] = None
+    extra: dict = Field(default_factory=dict)
+    created_at: datetime
+    sentences: List[SentenceRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
