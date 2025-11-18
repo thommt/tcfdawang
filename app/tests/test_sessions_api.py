@@ -52,6 +52,23 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
                 ]
             }
 
+        def compose_answer(self, **kwargs):
+            return {"title": "自动标题", "text": "Réponse standard"}
+
+        def compare_answer(self, **kwargs):
+            return {"decision": "new_group", "matched_answer_group_id": None, "reason": "差异较大", "differences": []}
+
+        def highlight_gaps(self, **kwargs):
+            return {
+                "coverage_score": 0.5,
+                "missing_points": ["缺少示例"],
+                "grammar_notes": ["动词一致"],
+                "suggestions": ["添加结论"],
+            }
+
+        def refine_answer(self, **kwargs):
+            return {"text": "Réponse enrichie", "notes": ["加入更多细节"]}
+
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     app.dependency_overrides[get_session] = override_get_session
     test_client = TestClient(app)
@@ -168,17 +185,6 @@ def test_run_compose_task(client: TestClient) -> None:
 
 
 def test_compare_task(client: TestClient) -> None:
-    class DummyLLM:
-        def evaluate_answer(self, **kwargs):
-            return {"feedback": "很好", "score": 4}
-
-        def compose_answer(self, **kwargs):
-            return {"title": "标题", "text": "Mon texte"}
-
-        def compare_answer(self, **kwargs):
-            return {"decision": "new_group", "matched_answer_group_id": None, "reason": "全新主旨", "differences": []}
-
-    app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     question_id = _create_question(client)
     group_resp = client.post(
         "/answer-groups",
@@ -204,6 +210,26 @@ def test_compare_task(client: TestClient) -> None:
     assert task["status"] == "succeeded"
     summary = task["result_summary"]
     assert summary["decision"] in {"new_group", "reuse"}
+    assert "saved_at" in summary
+
+
+def test_gap_highlight_and_refine(client: TestClient) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Je pense que..."},
+    )
+    session_id = session_resp.json()["id"]
+    highlight_resp = client.post(f"/sessions/{session_id}/tasks/gap-highlight")
+    assert highlight_resp.status_code == 201
+    highlight = highlight_resp.json()
+    assert highlight["type"] == "gap_highlight"
+    assert highlight["result_summary"]["coverage_score"] == 0.5
+    refine_resp = client.post(f"/sessions/{session_id}/tasks/refine")
+    assert refine_resp.status_code == 201
+    refine = refine_resp.json()
+    assert refine["type"] == "refine_answer"
+    assert refine["result_summary"]["text"] == "Réponse enrichie"
 
 
 def test_finalize_session_creates_answer(client: TestClient, session: Session) -> None:

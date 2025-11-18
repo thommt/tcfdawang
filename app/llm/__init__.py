@@ -21,6 +21,8 @@ from .chains import (
     build_chunk_split_chain,
     build_chunk_lexeme_chain,
     build_answer_comparator_chain,
+    build_gap_highlight_chain,
+    build_refine_answer_chain,
 )
 
 __all__ = [
@@ -44,4 +46,6 @@ __all__ = [
     "build_chunk_split_chain",
     "build_chunk_lexeme_chain",
     "build_answer_comparator_chain",
+    "build_gap_highlight_chain",
+    "build_refine_answer_chain",
 ]

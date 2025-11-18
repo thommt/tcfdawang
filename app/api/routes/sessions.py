@@ -78,6 +78,20 @@ def run_compare_task(
     return task_service.run_answer_compare_task(session_id)
 
 
+@sessions_router.post("/{session_id}/tasks/gap-highlight", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def run_gap_highlight_task(
+    session_id: int, task_service: TaskService = Depends(get_task_service)
+) -> TaskRead:
+    return task_service.run_gap_highlight_task(session_id)
+
+
+@sessions_router.post("/{session_id}/tasks/refine", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def run_refine_task(
+    session_id: int, task_service: TaskService = Depends(get_task_service)
+) -> TaskRead:
+    return task_service.run_refine_answer_task(session_id)
+
+
 @sessions_router.post("/{session_id}/finalize", response_model=SessionRead)
 def finalize_session(
     session_id: int,

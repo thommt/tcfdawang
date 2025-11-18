@@ -73,6 +73,16 @@ class QuestionLLMClient:
             self._answer_comparator_parser,
             self._answer_comparator_prompt,
         ) = build_answer_comparator_chain(self._llm)
+        (
+            self._gap_highlight_chain,
+            self._gap_highlight_parser,
+            self._gap_highlight_prompt,
+        ) = build_gap_highlight_chain(self._llm)
+        (
+            self._refine_answer_chain,
+            self._refine_answer_parser,
+            self._refine_answer_prompt,
+        ) = build_refine_answer_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -290,6 +300,76 @@ class QuestionLLMClient:
             result["_prompt_messages"] = self._serialize_messages(prompt_messages)
         except Exception as exc:  # pragma: no cover
             raise LLMError("对比现有答案组失败") from exc
+        return result
+
+    def highlight_gaps(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        answer_draft: str,
+        reference_answer: str,
+    ) -> dict:
+        try:
+            prompt_messages = self._gap_highlight_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                answer_draft=answer_draft,
+                reference_answer=reference_answer or "（暂无参考答案）",
+                format_instructions=self._gap_highlight_parser.get_format_instructions(),
+            )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._gap_highlight_parser.parse(response_text)
+            result = parsed.model_dump() if hasattr(parsed, "model_dump") else dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("GapHighlighter 请求失败") from exc
+        return result
+
+    def refine_answer(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        answer_draft: str,
+        gap_notes: dict | None = None,
+    ) -> dict:
+        notes_block = ""
+        if gap_notes:
+            missing = "\n".join(f"- {item}" for item in gap_notes.get("missing_points", []))
+            grammar = "\n".join(f"- {item}" for item in gap_notes.get("grammar_notes", []))
+            suggestions = "\n".join(f"- {item}" for item in gap_notes.get("suggestions", []))
+            notes_block = f"缺失要点:\n{missing}\n语法词汇:\n{grammar}\n建议:\n{suggestions}"
+        try:
+            prompt_messages = self._refine_answer_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                answer_draft=answer_draft,
+                gap_notes=notes_block or "（暂无提示）",
+                format_instructions=self._refine_answer_parser.get_format_instructions(),
+            )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._refine_answer_parser.parse(response_text)
+            result = parsed.model_dump() if hasattr(parsed, "model_dump") else dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("RefinedAnswer 请求失败") from exc
         return result
 
     def structure_answer(

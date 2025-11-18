@@ -146,3 +146,29 @@ COMPARATOR_HUMAN_PROMPT = (
     "考生最新草稿:\n{answer_draft}\n\n"
     "参考答案列表(按答案组给出最新版本)：\n{reference_answers}"
 )
+
+GAP_HIGHLIGHT_SYSTEM_PROMPT = (
+    "你是 TCF Canada 的口语评阅老师。请对比考生草稿与参考答案，指出缺失或薄弱的内容、语法词汇问题，并给出改进建议。"
+    "输出 JSON，包含 coverage_score(0-1)、missing_points(字符串列表)、grammar_notes(字符串列表)、suggestions(字符串列表)。{format_instructions}"
+)
+
+GAP_HIGHLIGHT_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容: {question_body}\n"
+    "考生草稿:\n{answer_draft}\n\n"
+    "参考答案:\n{reference_answer}"
+)
+
+REFINE_ANSWER_SYSTEM_PROMPT = (
+    "你是 TCF Canada 口语题写作教练。基于题目、考生草稿以及 GapHighlighter 的建议，生成一个改进版答案，"
+    "保持原主旨结构但加入更丰富的表达。输出 JSON，包含 text(法语答案) 与 notes(中文点拨)。{format_instructions}"
+)
+
+REFINE_ANSWER_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容: {question_body}\n"
+    "考生草稿:\n{answer_draft}\n"
+    "Gap 反馈：\n{gap_notes}"
+)

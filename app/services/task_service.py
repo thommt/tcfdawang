@@ -159,6 +159,10 @@ class TaskService:
             return self.run_compose_task(task.session_id)
         if task.type == "compare":
             return self.run_answer_compare_task(task.session_id)
+        if task.type == "gap_highlight":
+            return self.run_gap_highlight_task(task.session_id)
+        if task.type == "refine_answer":
+            return self.run_refine_answer_task(task.session_id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported task type for retry")
 
     def cancel_task(self, task_id: int) -> TaskRead:
@@ -236,6 +240,152 @@ class TaskService:
             self.session.add(session_entity)
             task.status = "succeeded"
             task.result_summary = compare_payload
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except LLMError as exc:
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return TaskRead.model_validate(task)
+
+    def _get_reference_answer_text(self, question_id: int, prefer_group_id: int | None) -> str:
+        group_ids = []
+        if prefer_group_id:
+            group_ids.append(prefer_group_id)
+        groups = self.session.exec(
+            select(AnswerGroupSchema.id).where(AnswerGroupSchema.question_id == question_id)
+        ).all()
+        for group in groups:
+            gid = group if isinstance(group, int) else group[0]
+            if gid not in group_ids:
+                group_ids.append(gid)
+        for gid in group_ids:
+            latest = self.session.exec(
+                select(AnswerSchema)
+                .where(AnswerSchema.answer_group_id == gid)
+                .order_by(AnswerSchema.version_index.desc())
+            ).first()
+            if latest:
+                return latest.text
+        return ""
+
+    def run_gap_highlight_task(self, session_id: int) -> TaskRead:
+        session_entity = self.session.get(SessionSchema, session_id)
+        if not session_entity:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        question = self.session.get(Question, session_entity.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        compare_state = session_entity.progress_state or {}
+        last_compare = compare_state.get("last_compare") or {}
+        reference_text = self._get_reference_answer_text(
+            question.id,
+            last_compare.get("matched_answer_group_id"),
+        )
+        task = Task(type="gap_highlight", status="pending", payload={"session_id": session_id}, session_id=session_id)
+        self.session.add(task)
+        self.session.commit()
+        try:
+            start = datetime.now(timezone.utc)
+            highlight = self.llm_client.highlight_gaps(
+                question_type=question.type,
+                question_title=question.title,
+                question_body=question.body,
+                answer_draft=session_entity.user_answer_draft or "",
+                reference_answer=reference_text,
+            )
+            prompt_messages = highlight.pop("_prompt_messages", None)
+            saved_at = datetime.now(timezone.utc)
+            latency = int((saved_at - start).total_seconds() * 1000)
+            conversation = LLMConversation(
+                session_id=session_id,
+                task_id=task.id,
+                purpose="gap_highlight",
+                messages={
+                    "question": question.body,
+                    "draft": session_entity.user_answer_draft or "",
+                    "reference_answer": reference_text,
+                    "prompt_messages": prompt_messages,
+                },
+                result=highlight,
+                model_name=getattr(self.llm_client, "model", None),
+                latency_ms=latency,
+            )
+            self.session.add(conversation)
+            progress_state = dict(session_entity.progress_state or {})
+            payload = dict(highlight)
+            payload["saved_at"] = saved_at.isoformat()
+            progress_state["last_gap_highlight"] = payload
+            session_entity.progress_state = progress_state
+            session_entity.updated_at = datetime.now(timezone.utc)
+            self.session.add(session_entity)
+            task.status = "succeeded"
+            task.result_summary = payload
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except LLMError as exc:
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return TaskRead.model_validate(task)
+
+    def run_refine_answer_task(self, session_id: int) -> TaskRead:
+        session_entity = self.session.get(SessionSchema, session_id)
+        if not session_entity:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        question = self.session.get(Question, session_entity.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        gap_notes = session_entity.progress_state.get("last_gap_highlight") if session_entity.progress_state else None
+        task = Task(type="refine_answer", status="pending", payload={"session_id": session_id}, session_id=session_id)
+        self.session.add(task)
+        self.session.commit()
+        try:
+            start = datetime.now(timezone.utc)
+            refined = self.llm_client.refine_answer(
+                question_type=question.type,
+                question_title=question.title,
+                question_body=question.body,
+                answer_draft=session_entity.user_answer_draft or "",
+                gap_notes=gap_notes,
+            )
+            prompt_messages = refined.pop("_prompt_messages", None)
+            saved_at = datetime.now(timezone.utc)
+            latency = int((saved_at - start).total_seconds() * 1000)
+            conversation = LLMConversation(
+                session_id=session_id,
+                task_id=task.id,
+                purpose="refine_answer",
+                messages={
+                    "question": question.body,
+                    "draft": session_entity.user_answer_draft or "",
+                    "gap_notes": gap_notes,
+                    "prompt_messages": prompt_messages,
+                },
+                result=refined,
+                model_name=getattr(self.llm_client, "model", None),
+                latency_ms=latency,
+            )
+            self.session.add(conversation)
+            progress_state = dict(session_entity.progress_state or {})
+            payload = dict(refined)
+            payload["saved_at"] = saved_at.isoformat()
+            progress_state["last_refine"] = payload
+            session_entity.progress_state = progress_state
+            session_entity.updated_at = datetime.now(timezone.utc)
+            self.session.add(session_entity)
+            task.status = "succeeded"
+            task.result_summary = payload
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
             self.session.commit()

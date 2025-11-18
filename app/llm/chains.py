@@ -25,6 +25,10 @@ from app.llm.prompts import (
     CHUNK_LEXEME_HUMAN_PROMPT,
     COMPARATOR_SYSTEM_PROMPT,
     COMPARATOR_HUMAN_PROMPT,
+    GAP_HIGHLIGHT_SYSTEM_PROMPT,
+    GAP_HIGHLIGHT_HUMAN_PROMPT,
+    REFINE_ANSWER_SYSTEM_PROMPT,
+    REFINE_ANSWER_HUMAN_PROMPT,
 )
 from app.llm.schemas import (
     QuestionMetadataSchema,
@@ -37,6 +41,8 @@ from app.llm.schemas import (
     SentenceChunkResultSchema,
     ChunkLexemeResultSchema,
     AnswerComparisonSchema,
+    GapHighlightSchema,
+    RefinedAnswerSchema,
 )
 
 
@@ -154,6 +160,30 @@ def build_answer_comparator_chain(llm: BaseChatModel):
         [
             ("system", COMPARATOR_SYSTEM_PROMPT),
             ("human", COMPARATOR_HUMAN_PROMPT),
+        ]
+    )
+    chain = prompt | llm | parser
+    return chain, parser, prompt
+
+
+def build_gap_highlight_chain(llm: BaseChatModel):
+    parser = JsonOutputParser(pydantic_object=GapHighlightSchema)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", GAP_HIGHLIGHT_SYSTEM_PROMPT),
+            ("human", GAP_HIGHLIGHT_HUMAN_PROMPT),
+        ]
+    )
+    chain = prompt | llm | parser
+    return chain, parser, prompt
+
+
+def build_refine_answer_chain(llm: BaseChatModel):
+    parser = JsonOutputParser(pydantic_object=RefinedAnswerSchema)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", REFINE_ANSWER_SYSTEM_PROMPT),
+            ("human", REFINE_ANSWER_HUMAN_PROMPT),
         ]
     )
     chain = prompt | llm | parser

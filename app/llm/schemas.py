@@ -107,3 +107,16 @@ class AnswerComparisonSchema(BaseModel):
     matched_answer_group_id: Optional[int] = Field(default=None, description="若 reuse，则返回匹配的答案组 ID")
     reason: str = Field(..., description="中文说明决策理由")
     differences: List[str] = Field(default_factory=list, description="若 reuse，指出差异点；若 new_group，可描述新主旨")
+    coverage_score: Optional[float] = None
+
+
+class GapHighlightSchema(BaseModel):
+    coverage_score: Optional[float] = Field(default=None, description="覆盖度 0-1")
+    missing_points: List[str] = Field(default_factory=list)
+    grammar_notes: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
+
+
+class RefinedAnswerSchema(BaseModel):
+    text: str
+    notes: List[str] = Field(default_factory=list)
