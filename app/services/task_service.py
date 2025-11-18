@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Set
 
 from fastapi import HTTPException, status
 from sqlmodel import Session as DBSession, select
@@ -19,13 +19,16 @@ from app.db.schemas import (
     SentenceLexeme,
 )
 from app.models.fetch_task import TaskRead
+from app.models.flashcard import FlashcardProgressCreate
 from app.services.llm_service import QuestionLLMClient, LLMError
+from app.services.flashcard_service import FlashcardService
 
 
 class TaskService:
     def __init__(self, session: DBSession, llm_client: QuestionLLMClient) -> None:
         self.session = session
         self.llm_client = llm_client
+        self.flashcard_service = FlashcardService(session)
 
     def run_eval_task(self, session_id: int) -> TaskRead:
         session_entity = self.session.get(SessionSchema, session_id)
@@ -151,7 +154,17 @@ class TaskService:
         self.session.refresh(task)
         return TaskRead.model_validate(task)
 
-    def _cleanup_orphan_lexemes(self, candidate_ids: set[int]) -> None:
+    def _ensure_sentence_flashcard(self, sentence_id: int) -> None:
+        self.flashcard_service.get_or_create(
+            FlashcardProgressCreate(entity_type="sentence", entity_id=sentence_id)
+        )
+
+    def _ensure_lexeme_flashcard(self, lexeme_id: int) -> None:
+        self.flashcard_service.get_or_create(
+            FlashcardProgressCreate(entity_type="lexeme", entity_id=lexeme_id)
+        )
+
+    def _cleanup_orphan_lexemes(self, candidate_ids: Set[int]) -> None:
         if not candidate_ids:
             return
         for lexeme_id in candidate_ids:
@@ -305,6 +318,7 @@ class TaskService:
             )
             translations = translation_result.get("translations") or []
             updated = 0
+            sentence_ids_for_cards: Set[int] = set()
             for item in translations:
                 idx = item.get("sentence_index")
                 if not isinstance(idx, int) or idx < 1 or idx > len(sentences):
@@ -315,7 +329,10 @@ class TaskService:
                 sentence.difficulty = item.get("difficulty") or sentence.difficulty
                 self.session.add(sentence)
                 updated += 1
+                sentence_ids_for_cards.add(sentence.id)
             self.session.commit()
+            for sentence_id in sentence_ids_for_cards:
+                self._ensure_sentence_flashcard(sentence_id)
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,
@@ -374,14 +391,15 @@ class TaskService:
                 sentence_text=sentence.text,
             )
             phrases = split_result.get("phrases") or []
-        existing_links = self.session.exec(
-            select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
-        ).all()
-        orphan_candidates = {link.lexeme_id for link in existing_links if link.lexeme_id}
-        for link in existing_links:
-            self.session.delete(link)
-        self.session.commit()
+            existing_links = self.session.exec(
+                select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
+            ).all()
+            orphan_candidates = {link.lexeme_id for link in existing_links if link.lexeme_id}
+            for link in existing_links:
+                self.session.delete(link)
+            self.session.commit()
             created = 0
+            lexeme_ids_for_cards: Set[int] = set()
             for idx, phrase in enumerate(phrases, start=1):
                 lemma = (phrase.get("lemma") or phrase.get("phrase") or "").strip()
                 if not lemma:
@@ -406,6 +424,7 @@ class TaskService:
                     self.session.add(lexeme)
                     self.session.commit()
                     self.session.refresh(lexeme)
+                lexeme_ids_for_cards.add(lexeme.id)
                 sentence_lexeme = SentenceLexeme(
                     sentence_id=sentence_id,
                     lexeme_id=lexeme.id,
@@ -417,6 +436,8 @@ class TaskService:
                 self.session.add(sentence_lexeme)
                 created += 1
             self.session.commit()
+            for lexeme_id in lexeme_ids_for_cards:
+                self._ensure_lexeme_flashcard(lexeme_id)
             self._cleanup_orphan_lexemes(orphan_candidates)
             conversation = LLMConversation(
                 session_id=None,
