@@ -264,12 +264,27 @@ class SessionService:
             conversations = []
         conversation_reads = [LLMConversationRead.model_validate(conv) for conv in conversations]
 
+        review_notes_history = []
+        for session_entry in sessions:
+            history_entries = session_entry.progress_state.get("review_notes_history")
+            if isinstance(history_entries, list):
+                for entry in history_entries:
+                    if isinstance(entry, dict):
+                        review_notes_history.append(
+                            {
+                                "session_id": session_entry.id,
+                                "note": entry.get("note"),
+                                "saved_at": entry.get("saved_at"),
+                            }
+                        )
+
         return AnswerHistoryRead(
             answer=self._to_answer_read(answer),
             group=self._to_answer_group_read(group, include_answers=True),
             sessions=session_reads,
             tasks=task_reads,
             conversations=conversation_reads,
+            review_notes_history=review_notes_history,
         )
 
     # Helpers

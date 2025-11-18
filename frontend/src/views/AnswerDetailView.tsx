@@ -239,6 +239,21 @@ export default defineComponent({
                   <p>尚无与此答案关联的 Session。</p>
                 )}
               </div>
+              {history.value.review_notes_history.length > 0 && (
+                <div class="history-block">
+                  <h5>复习要点历史</h5>
+                  <ul class="history-list">
+                    {history.value.review_notes_history.map((entry, index) => (
+                      <li key={`${entry.session_id}-${entry.saved_at}-${index}`}>
+                        <header>
+                          Session #{entry.session_id} · {entry.saved_at ? new Date(entry.saved_at).toLocaleString() : '时间未知'}
+                        </header>
+                        <p>{entry.note || '未记录任何内容'}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div class="history-block">
                 <h5>任务记录</h5>
                 {history.value.tasks.length ? (
