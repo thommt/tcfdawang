@@ -132,3 +132,17 @@ CHUNK_LEXEME_HUMAN_PROMPT = (
     "目标句子: {sentence_text}\n"
     "记忆块：\n{chunks_block}"
 )
+
+COMPARATOR_SYSTEM_PROMPT = (
+    "你是 TCF Canada 口语题的评估官。收到考生最新草稿以及若干参考答案（每个代表一个答案组的最新版本），"
+    "请判断哪一个参考答案与草稿最接近，并说明差异；若草稿与所有参考答案差异都很大，应建议创建一个新的答案组。"
+    "输出 JSON，包含字段：decision(new_group/reuse)、matched_answer_group_id(若 reuse)、reason(中文说明)、differences(字符串列表)。{format_instructions}"
+)
+
+COMPARATOR_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容: {question_body}\n"
+    "考生最新草稿:\n{answer_draft}\n\n"
+    "参考答案列表(按答案组给出最新版本)：\n{reference_answers}"
+)

@@ -149,6 +149,9 @@ def test_run_compose_task(client: TestClient) -> None:
         def compose_answer(self, **kwargs):
             return {"title": "标题", "text": "Mon texte"}
 
+        def compare_answer(self, **kwargs):
+            return {"decision": "new_group", "matched_answer_group_id": None, "reason": "全新主旨", "differences": []}
+
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     question_id = _create_question(client)
     session_resp = client.post("/sessions", json={"question_id": question_id}).json()
@@ -162,6 +165,45 @@ def test_run_compose_task(client: TestClient) -> None:
     last_compose = session_data["progress_state"]["last_compose"]
     assert last_compose["text"] == "Mon texte"
     assert "saved_at" in last_compose
+
+
+def test_compare_task(client: TestClient) -> None:
+    class DummyLLM:
+        def evaluate_answer(self, **kwargs):
+            return {"feedback": "很好", "score": 4}
+
+        def compose_answer(self, **kwargs):
+            return {"title": "标题", "text": "Mon texte"}
+
+        def compare_answer(self, **kwargs):
+            return {"decision": "new_group", "matched_answer_group_id": None, "reason": "全新主旨", "differences": []}
+
+    app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
+    question_id = _create_question(client)
+    group_resp = client.post(
+        "/answer-groups",
+        json={"question_id": question_id, "title": "Group 1"},
+    ).json()
+    client.post(
+        "/answers",
+        json={
+            "answer_group_id": group_resp["id"],
+            "title": "Answer title",
+            "text": "Contenu",
+        },
+    )
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Je pense que..."},
+    )
+    session_id = session_resp.json()["id"]
+    task_resp = client.post(f"/sessions/{session_id}/tasks/compare")
+    assert task_resp.status_code == 201
+    task = task_resp.json()
+    assert task["type"] == "compare"
+    assert task["status"] == "succeeded"
+    summary = task["result_summary"]
+    assert summary["decision"] in {"new_group", "reuse"}
 
 
 def test_finalize_session_creates_answer(client: TestClient, session: Session) -> None:

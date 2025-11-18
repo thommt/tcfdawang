@@ -20,6 +20,7 @@ from .chains import (
     build_phrase_split_quality_chain,
     build_chunk_split_chain,
     build_chunk_lexeme_chain,
+    build_answer_comparator_chain,
 )
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "build_phrase_split_quality_chain",
     "build_chunk_split_chain",
     "build_chunk_lexeme_chain",
+    "build_answer_comparator_chain",
 ]

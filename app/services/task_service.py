@@ -157,6 +157,8 @@ class TaskService:
             return self.run_eval_task(task.session_id)
         if task.type == "compose":
             return self.run_compose_task(task.session_id)
+        if task.type == "compare":
+            return self.run_answer_compare_task(task.session_id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported task type for retry")
 
     def cancel_task(self, task_id: int) -> TaskRead:
@@ -168,6 +170,83 @@ class TaskService:
         self.session.add(task)
         self.session.commit()
         self.session.refresh(task)
+        return TaskRead.model_validate(task)
+
+    def run_answer_compare_task(self, session_id: int) -> TaskRead:
+        session_entity = self.session.get(SessionSchema, session_id)
+        if not session_entity:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        question = self.session.get(Question, session_entity.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        answer_groups = self.session.exec(
+            select(AnswerGroupSchema).where(AnswerGroupSchema.question_id == question.id)
+        ).all()
+        reference_answers: list[dict[str, Any]] = []
+        for group in answer_groups:
+            latest_answer = self.session.exec(
+                select(AnswerSchema)
+                .where(AnswerSchema.answer_group_id == group.id)
+                .order_by(AnswerSchema.version_index.desc())
+            ).first()
+            if latest_answer:
+                reference_answers.append(
+                    {
+                        "answer_group_id": group.id,
+                        "version_index": latest_answer.version_index,
+                        "text": latest_answer.text,
+                    }
+                )
+        task = Task(type="compare", status="pending", payload={"session_id": session_id}, session_id=session_id)
+        self.session.add(task)
+        self.session.commit()
+        try:
+            start = datetime.now(timezone.utc)
+            compare_result = self.llm_client.compare_answer(
+                question_type=question.type,
+                question_title=question.title,
+                question_body=question.body,
+                answer_draft=session_entity.user_answer_draft or "",
+                reference_answers=reference_answers,
+            )
+            prompt_messages = compare_result.pop("_prompt_messages", None)
+            saved_at = datetime.now(timezone.utc)
+            latency = int((saved_at - start).total_seconds() * 1000)
+            conversation = LLMConversation(
+                session_id=session_id,
+                task_id=task.id,
+                purpose="compare",
+                messages={
+                    "question": question.body,
+                    "draft": session_entity.user_answer_draft or "",
+                    "reference_answers": reference_answers,
+                    "prompt_messages": prompt_messages,
+                },
+                result=compare_result,
+                model_name=getattr(self.llm_client, "model", None),
+                latency_ms=latency,
+            )
+            self.session.add(conversation)
+            progress_state = dict(session_entity.progress_state or {})
+            compare_payload = dict(compare_result)
+            compare_payload["saved_at"] = saved_at.isoformat()
+            progress_state["last_compare"] = compare_payload
+            session_entity.progress_state = progress_state
+            session_entity.updated_at = datetime.now(timezone.utc)
+            self.session.add(session_entity)
+            task.status = "succeeded"
+            task.result_summary = compare_payload
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except LLMError as exc:
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
     def _ensure_sentence_flashcard(self, sentence_id: int) -> None:

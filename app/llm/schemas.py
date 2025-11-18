@@ -100,3 +100,10 @@ class ChunkLexemeItemSchema(BaseModel):
 
 class ChunkLexemeResultSchema(BaseModel):
     lexemes: List[ChunkLexemeItemSchema] = Field(default_factory=list)
+
+
+class AnswerComparisonSchema(BaseModel):
+    decision: str = Field(..., description="new_group 或 reuse")
+    matched_answer_group_id: Optional[int] = Field(default=None, description="若 reuse，则返回匹配的答案组 ID")
+    reason: str = Field(..., description="中文说明决策理由")
+    differences: List[str] = Field(default_factory=list, description="若 reuse，指出差异点；若 new_group，可描述新主旨")

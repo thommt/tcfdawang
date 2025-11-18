@@ -15,6 +15,7 @@ from app.llm import (
     build_phrase_split_quality_chain,
     build_chunk_split_chain,
     build_chunk_lexeme_chain,
+    build_answer_comparator_chain,
 )
 
 
@@ -67,6 +68,11 @@ class QuestionLLMClient:
             self._chunk_lexeme_parser,
             self._chunk_lexeme_prompt,
         ) = build_chunk_lexeme_chain(self._llm)
+        (
+            self._answer_comparator_chain,
+            self._answer_comparator_parser,
+            self._answer_comparator_prompt,
+        ) = build_answer_comparator_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -245,6 +251,45 @@ class QuestionLLMClient:
             result["_prompt_messages"] = self._serialize_messages(prompt_messages)
         except Exception as exc:  # pragma: no cover
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
+    def compare_answer(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        answer_draft: str,
+        reference_answers: list[dict],
+    ) -> dict:
+        references_block = "\n".join(
+            f"- group_id={item.get('answer_group_id')} (version {item.get('version_index')}): {item.get('text')}"
+            for item in reference_answers
+        ) or "（无参考答案）"
+        try:
+            prompt_messages = self._answer_comparator_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                answer_draft=answer_draft,
+                reference_answers=references_block,
+                format_instructions=self._answer_comparator_parser.get_format_instructions(),
+            )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._answer_comparator_parser.parse(response_text)
+            if hasattr(parsed, "model_dump"):
+                result = parsed.model_dump()
+            else:
+                result = dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("对比现有答案组失败") from exc
         return result
 
     def structure_answer(

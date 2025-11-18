@@ -23,6 +23,8 @@ from app.llm.prompts import (
     CHUNK_SPLIT_HUMAN_PROMPT,
     CHUNK_LEXEME_SYSTEM_PROMPT,
     CHUNK_LEXEME_HUMAN_PROMPT,
+    COMPARATOR_SYSTEM_PROMPT,
+    COMPARATOR_HUMAN_PROMPT,
 )
 from app.llm.schemas import (
     QuestionMetadataSchema,
@@ -34,6 +36,7 @@ from app.llm.schemas import (
     PhraseSplitQualitySchema,
     SentenceChunkResultSchema,
     ChunkLexemeResultSchema,
+    AnswerComparisonSchema,
 )
 
 
@@ -139,6 +142,18 @@ def build_chunk_lexeme_chain(llm: BaseChatModel):
         [
             ("system", CHUNK_LEXEME_SYSTEM_PROMPT),
             ("human", CHUNK_LEXEME_HUMAN_PROMPT),
+        ]
+    )
+    chain = prompt | llm | parser
+    return chain, parser, prompt
+
+
+def build_answer_comparator_chain(llm: BaseChatModel):
+    parser = JsonOutputParser(pydantic_object=AnswerComparisonSchema)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", COMPARATOR_SYSTEM_PROMPT),
+            ("human", COMPARATOR_HUMAN_PROMPT),
         ]
     )
     chain = prompt | llm | parser
