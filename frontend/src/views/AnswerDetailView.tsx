@@ -210,18 +210,29 @@ export default defineComponent({
                         <th>状态</th>
                         <th>开始时间</th>
                         <th>完成时间</th>
+                        <th>复习要点</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {history.value.sessions.map((session) => (
-                        <tr key={session.id}>
-                          <td>{session.id}</td>
-                          <td>{session.session_type}</td>
-                          <td>{session.status}</td>
-                          <td>{new Date(session.started_at).toLocaleString()}</td>
-                          <td>{session.completed_at ? new Date(session.completed_at).toLocaleString() : '—'}</td>
-                        </tr>
-                      ))}
+                      {history.value.sessions.map((session) => {
+                        const reviewNotes = session.progress_state?.review_notes as string | undefined;
+                        return (
+                          <tr key={session.id}>
+                            <td>{session.id}</td>
+                            <td>{session.session_type}</td>
+                            <td>{session.status}</td>
+                            <td>{new Date(session.started_at).toLocaleString()}</td>
+                            <td>{session.completed_at ? new Date(session.completed_at).toLocaleString() : '—'}</td>
+                            <td>
+                              {reviewNotes ? (
+                                <span title={reviewNotes}>{reviewNotes.slice(0, 40)}{reviewNotes.length > 40 ? '…' : ''}</span>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 ) : (
