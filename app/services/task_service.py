@@ -151,6 +151,20 @@ class TaskService:
         self.session.refresh(task)
         return TaskRead.model_validate(task)
 
+    def _cleanup_orphan_lexemes(self, candidate_ids: set[int]) -> None:
+        if not candidate_ids:
+            return
+        for lexeme_id in candidate_ids:
+            lexeme = self.session.get(Lexeme, lexeme_id)
+            if not lexeme:
+                continue
+            linked = self.session.exec(
+                select(SentenceLexeme.id).where(SentenceLexeme.lexeme_id == lexeme_id)
+            ).first()
+            if linked:
+                continue
+            self.session.delete(lexeme)
+
     def _get_task(self, task_id: int) -> Task:
         task = self.session.get(Task, task_id)
         if not task:
@@ -360,12 +374,13 @@ class TaskService:
                 sentence_text=sentence.text,
             )
             phrases = split_result.get("phrases") or []
-            existing_links = self.session.exec(
-                select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
-            ).all()
-            for link in existing_links:
-                self.session.delete(link)
-            self.session.commit()
+        existing_links = self.session.exec(
+            select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
+        ).all()
+        orphan_candidates = {link.lexeme_id for link in existing_links if link.lexeme_id}
+        for link in existing_links:
+            self.session.delete(link)
+        self.session.commit()
             created = 0
             for idx, phrase in enumerate(phrases, start=1):
                 lemma = (phrase.get("lemma") or phrase.get("phrase") or "").strip()
@@ -402,6 +417,7 @@ class TaskService:
                 self.session.add(sentence_lexeme)
                 created += 1
             self.session.commit()
+            self._cleanup_orphan_lexemes(orphan_candidates)
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,
