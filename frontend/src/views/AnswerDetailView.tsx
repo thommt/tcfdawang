@@ -8,6 +8,7 @@ import { generateSentenceChunks, generateChunkLexemes } from '../api/sentences';
 import type { Answer, AnswerGroup, Paragraph, AnswerHistory } from '../types/answer';
 import type { Question, FetchTask } from '../types/question';
 import { useSessionStore } from '../stores/sessions';
+import { extractChunkIssues, extractLexemeIssues } from '../utils/chunks';
 
 export default defineComponent({
   name: 'AnswerDetailView',
@@ -32,9 +33,12 @@ export default defineComponent({
     const historyLoading = ref(false);
     const historyError = ref('');
     const reviewError = ref('');
-    const splittingSentenceId = ref<number | null>(null);
-    const splitError = ref('');
-    const splitMessage = ref('');
+    const chunkingSentenceId = ref<number | null>(null);
+    const lexemeSentenceId = ref<number | null>(null);
+    const chunkError = ref('');
+    const chunkMessage = ref('');
+    const lexemeError = ref('');
+    const lexemeMessage = ref('');
 
     async function loadParagraphStructure() {
       paragraphs.value = await fetchParagraphsByAnswer(answerId);
@@ -65,8 +69,10 @@ export default defineComponent({
       structuringMessage.value = '';
       translationError.value = '';
       translationMessage.value = '';
-      splitError.value = '';
-      splitMessage.value = '';
+      chunkError.value = '';
+      chunkMessage.value = '';
+      lexemeError.value = '';
+      lexemeMessage.value = '';
       try {
         answer.value = await fetchAnswerById(answerId);
         group.value = await fetchAnswerGroupById(answer.value.answer_group_id);
@@ -133,23 +139,52 @@ export default defineComponent({
       }
     }
 
-    async function generateChunksAndLexemes(sentenceId: number) {
-      if (splittingSentenceId.value) return;
-      splittingSentenceId.value = sentenceId;
-      splitError.value = '';
-      splitMessage.value = '';
+    async function generateChunks(sentenceId: number) {
+      if (chunkingSentenceId.value) return;
+      chunkingSentenceId.value = sentenceId;
+      chunkError.value = '';
+      chunkMessage.value = '';
       try {
         await generateSentenceChunks(sentenceId);
-        await generateChunkLexemes(sentenceId);
-        splitMessage.value = 'Chunk 与关键词已生成';
-      } catch (err) {
-        splitError.value = '生成 Chunk 或关键词失败';
+        chunkMessage.value = '记忆块生成完成';
+      } catch (err: any) {
+        chunkError.value = err?.response?.data?.detail ?? '生成记忆块失败';
         console.error(err);
       } finally {
-        splittingSentenceId.value = null;
+        chunkingSentenceId.value = null;
         await loadParagraphStructure();
         await loadHistory();
       }
+    }
+
+    async function generateLexemes(sentenceId: number, hasChunks: boolean) {
+      if (!hasChunks) {
+        lexemeError.value = '请先生成记忆块';
+        return;
+      }
+      if (lexemeSentenceId.value) return;
+      lexemeSentenceId.value = sentenceId;
+      lexemeError.value = '';
+      lexemeMessage.value = '';
+      try {
+        await generateChunkLexemes(sentenceId);
+        lexemeMessage.value = '关键词生成完成';
+      } catch (err: any) {
+        lexemeError.value = err?.response?.data?.detail ?? '生成关键词失败';
+        console.error(err);
+      } finally {
+        lexemeSentenceId.value = null;
+        await loadParagraphStructure();
+        await loadHistory();
+      }
+    }
+
+    function getChunkIssues(sentence: Paragraph['sentences'][number]): string[] {
+      return extractChunkIssues(sentence.extra);
+    }
+
+    function getLexemeIssues(sentence: Paragraph['sentences'][number]): string[] {
+      return extractLexemeIssues(sentence.extra);
     }
 
     onMounted(() => {
@@ -230,8 +265,10 @@ export default defineComponent({
           {structuringMessage.value && <p class="success">{structuringMessage.value}</p>}
           {translationError.value && <p class="error">{translationError.value}</p>}
           {translationMessage.value && <p class="success">{translationMessage.value}</p>}
-          {splitError.value && <p class="error">{splitError.value}</p>}
-          {splitMessage.value && <p class="success">{splitMessage.value}</p>}
+        {chunkError.value && <p class="error">{chunkError.value}</p>}
+        {chunkMessage.value && <p class="success">{chunkMessage.value}</p>}
+        {lexemeError.value && <p class="error">{lexemeError.value}</p>}
+        {lexemeMessage.value && <p class="success">{lexemeMessage.value}</p>}
           {latestStructureTask.value && (
             <p class="structure-task-meta">
               最近一次任务：#{latestStructureTask.value.id} · {latestStructureTask.value.status} ·
@@ -267,16 +304,35 @@ export default defineComponent({
                       <div class="sentence-actions">
                         <button
                           type="button"
-                          onClick={() => generateChunksAndLexemes(sentence.id)}
-                          disabled={splittingSentenceId.value === sentence.id}
+                          onClick={() => generateChunks(sentence.id)}
+                          disabled={chunkingSentenceId.value === sentence.id}
                         >
-                          {splittingSentenceId.value === sentence.id
-                            ? '处理中...'
+                          {chunkingSentenceId.value === sentence.id
+                            ? '生成记忆块中...'
                             : sentence.chunks && sentence.chunks.length > 0
-                            ? '重新生成 Chunk 与关键词'
-                            : '生成 Chunk 与关键词'}
+                            ? '重新生成记忆块'
+                            : '生成记忆块'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => generateLexemes(sentence.id, !!(sentence.chunks && sentence.chunks.length))}
+                          disabled={lexemeSentenceId.value === sentence.id}
+                        >
+                          {lexemeSentenceId.value === sentence.id ? '生成关键词中...' : '生成关键词'}
                         </button>
                       </div>
+                      {(() => {
+                        const issues = getChunkIssues(sentence);
+                        return issues.length ? (
+                          <p class="error">记忆块提醒：{issues.join('；')}</p>
+                        ) : null;
+                      })()}
+                      {(() => {
+                        const issues = getLexemeIssues(sentence);
+                        return issues.length ? (
+                          <p class="error">关键词提醒：{issues.join('；')}</p>
+                        ) : null;
+                      })()}
                       {sentence.chunks && sentence.chunks.length > 0 ? (
                         <ul class="chunk-list">
                           {sentence.chunks.map((chunk) => (
