@@ -23,11 +23,12 @@ export interface SentenceCardInfo {
 
 export interface LexemeCardInfo {
   id: number;
-  lemma: string;
+  headword: string;
   sense_label?: string | null;
   gloss?: string | null;
   translation_en?: string | null;
   translation_zh?: string | null;
+  sample_chunk?: string | null;
   sample_sentence?: string | null;
   sample_sentence_translation?: string | null;
 }

@@ -167,8 +167,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 1. 前端提供“Lexeme 管理”页面，列出每个词/短语的 `lemma`, `sense_label`, `gloss`, 引用次数、收藏/SRS 状态。
 2. 用户可手动：
    - 编辑 `sense_label/gloss/translation`（将 `is_manual` 置为 true）。
-   - 合并多个 Lexeme（选择主条目，系统更新所有 `SentenceLexeme.lexeme_id` 指向主条目，旧条目标记为 archived）。
-   - 拆分/重新关联：从 `SentenceLexeme` 中解除与某个 Lexeme 的关联，转而绑定新的条目或创建新的 Lexeme。
+   - 合并多个 Lexeme（选择主条目，系统更新所有 `ChunkLexeme.lexeme_id` 指向主条目，旧条目标记为 archived）。
+   - 拆分/重新关联：从 `ChunkLexeme` 中解除与某个 Lexeme 的关联，转而绑定新的条目或创建新的 Lexeme。
 3. API 需提供：
    - `PUT /lexemes/{id}` 更新单个 Lexeme（含 sense/翻译）。
    - `POST /lexemes/{id}/merge` 将多个 lexeme 列表合并至目标 ID。

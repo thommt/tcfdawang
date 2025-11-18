@@ -9,7 +9,7 @@ from sqlalchemy import exists
 from sqlmodel import Session, select
 
 from app.db.base import get_engine
-from app.db.schemas import Paragraph, Sentence, SentenceLexeme, Lexeme
+from app.db.schemas import Paragraph, Sentence, SentenceChunk, ChunkLexeme, Lexeme
 from app.services.llm_service import QuestionLLMClient
 from app.services.task_service import TaskService
 
@@ -38,7 +38,7 @@ def resolve_sentence_ids(session: Session, sentence_id: int | None, answer_id: i
 
 
 def cleanup_orphan_lexemes(session: Session) -> int:
-    subquery = select(SentenceLexeme.id).where(SentenceLexeme.lexeme_id == Lexeme.id)
+    subquery = select(ChunkLexeme.id).where(ChunkLexeme.lexeme_id == Lexeme.id)
     statement = select(Lexeme).where(~exists(subquery))
     removed = 0
     for lexeme in session.exec(statement).all():

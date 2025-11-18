@@ -16,7 +16,8 @@ from app.db.schemas import (
     Paragraph,
     Sentence,
     Lexeme,
-    SentenceLexeme,
+    SentenceChunk,
+    ChunkLexeme,
 )
 from app.models.fetch_task import TaskRead
 from app.models.flashcard import FlashcardProgressCreate
@@ -172,7 +173,7 @@ class TaskService:
             if not lexeme:
                 continue
             linked = self.session.exec(
-                select(SentenceLexeme.id).where(SentenceLexeme.lexeme_id == lexeme_id)
+                select(ChunkLexeme.id).where(ChunkLexeme.lexeme_id == lexeme_id)
             ).first()
             if linked:
                 continue
@@ -385,12 +386,21 @@ class TaskService:
         self.session.refresh(task)
         sentence_extra = dict(sentence.extra or {})
         known_issues: list[str] = sentence_extra.get("split_issues") or []
-        existing_links = self.session.exec(
-            select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
+        existing_chunks = self.session.exec(
+            select(SentenceChunk).where(SentenceChunk.sentence_id == sentence_id)
         ).all()
-        orphan_candidates = {link.lexeme_id for link in existing_links if link.lexeme_id}
-        for link in existing_links:
-            self.session.delete(link)
+        chunk_ids = [chunk.id for chunk in existing_chunks if chunk.id is not None]
+        orphan_candidates: Set[int] = set()
+        if chunk_ids:
+            chunk_links = self.session.exec(
+                select(ChunkLexeme).where(ChunkLexeme.chunk_id.in_(chunk_ids))
+            ).all()
+            for link in chunk_links:
+                if link.lexeme_id:
+                    orphan_candidates.add(link.lexeme_id)
+                self.session.delete(link)
+        for chunk in existing_chunks:
+            self.session.delete(chunk)
         self.session.commit()
         self._cleanup_orphan_lexemes(orphan_candidates)
         try:
@@ -450,43 +460,54 @@ class TaskService:
             self.session.commit()
             created = 0
             lexeme_ids_for_cards: Set[int] = set()
+            chunk_records: list[tuple[SentenceChunk, dict]] = []
             for idx, phrase in enumerate(phrases, start=1):
-                lemma = (phrase.get("lemma") or phrase.get("phrase") or "").strip()
-                if not lemma:
+                chunk = SentenceChunk(
+                    sentence_id=sentence_id,
+                    order_index=idx,
+                    text=(phrase.get("phrase") or "").strip(),
+                    translation_en=phrase.get("translation_en"),
+                    translation_zh=phrase.get("translation_zh"),
+                    chunk_type=phrase.get("chunk_type"),
+                    extra={},
+                )
+                self.session.add(chunk)
+                self.session.commit()
+                self.session.refresh(chunk)
+                chunk_records.append((chunk, phrase))
+            for chunk, phrase in chunk_records:
+                headword = (phrase.get("lemma") or chunk.text or "").strip()
+                if not headword:
                     continue
                 sense_label = (phrase.get("sense_label") or "").strip()
-                phrase_text = (phrase.get("phrase") or "").strip()
-                hash_value = self._build_lexeme_hash(lemma, sense_label, phrase_text)
+                hash_value = self._build_lexeme_hash(headword, sense_label, chunk.text or "")
                 lexeme = self.session.exec(select(Lexeme).where(Lexeme.hash == hash_value)).first()
                 if not lexeme:
                     normalized_pos = self._normalize_pos_tag(phrase.get("pos_tags"))
                     normalized_difficulty = self._normalize_difficulty(phrase.get("difficulty"))
                     lexeme = Lexeme(
-                        lemma=lemma,
+                        headword=headword,
                         sense_label=sense_label or None,
                         gloss=phrase.get("gloss"),
                         translation_en=phrase.get("translation_en"),
                         translation_zh=phrase.get("translation_zh"),
                         pos_tags=normalized_pos,
-                        notes=phrase.get("notes"),
-                        complexity_level=normalized_difficulty,
+                        difficulty=normalized_difficulty,
                         hash=hash_value,
-                        is_manual=False,
                         extra={},
                     )
                     self.session.add(lexeme)
                     self.session.commit()
                     self.session.refresh(lexeme)
                 lexeme_ids_for_cards.add(lexeme.id)
-                sentence_lexeme = SentenceLexeme(
-                    sentence_id=sentence_id,
+                chunk_lexeme = ChunkLexeme(
+                    chunk_id=chunk.id,
                     lexeme_id=lexeme.id,
-                    order_index=idx,
-                    context_note=phrase.get("context_note"),
-                    translation_override=phrase.get("translation_override"),
+                    order_index=1,
+                    role=phrase.get("role"),
                     extra={},
                 )
-                self.session.add(sentence_lexeme)
+                self.session.add(chunk_lexeme)
                 created += 1
             self.session.commit()
             for lexeme_id in lexeme_ids_for_cards:
@@ -535,6 +556,33 @@ class TaskService:
         if normalized_phrase:
             parts.append(normalized_phrase)
         return "::".join(parts)
+
+    def _normalize_pos_tag(self, pos_value: str | None) -> str | None:
+        if not pos_value:
+            return None
+        normalized = " ".join(pos_value.strip().lower().split())
+        mapping = {
+            "noun": {"noun", "n", "名词"},
+            "noun phrase": {"noun phrase", "名词短语", "np"},
+            "verb": {"verb", "v", "动词"},
+            "verb phrase": {"verb phrase", "动词短语", "vp"},
+            "adjective": {"adjective", "adj", "形容词"},
+            "adverb": {"adverb", "adv", "副词"},
+            "expression": {"expression", "短语", "表达", "phrase"},
+            "preposition phrase": {"preposition phrase", "介词短语"},
+            "conjunction": {"conjunction", "连词"},
+        }
+        for canonical, aliases in mapping.items():
+            if normalized in aliases:
+                return canonical
+        return None
+
+    def _normalize_difficulty(self, difficulty: str | None) -> str | None:
+        if not difficulty:
+            return None
+        normalized = difficulty.strip().upper()
+        allowed = {"A1", "A2", "B1", "B2", "C1", "C2"}
+        return normalized if normalized in allowed else None
 
     def _normalize_pos_tag(self, pos_value: str | None) -> str | None:
         if not pos_value:

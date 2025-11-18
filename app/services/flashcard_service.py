@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlmodel import Session as DBSession, select
 
-from app.db.schemas import FlashcardProgress, Sentence, Paragraph, Lexeme, SentenceLexeme
+from app.db.schemas import FlashcardProgress, Sentence, Paragraph, Lexeme, SentenceChunk, ChunkLexeme
 from app.models.flashcard import (
     FlashcardProgressRead,
     FlashcardProgressCreate,
@@ -114,20 +114,23 @@ class FlashcardService:
             lexeme = self.session.get(Lexeme, entity.entity_id)
             if lexeme:
                 sample = self.session.exec(
-                    select(SentenceLexeme, Sentence)
-                    .join(Sentence, SentenceLexeme.sentence_id == Sentence.id)
-                    .where(SentenceLexeme.lexeme_id == lexeme.id)
-                    .order_by(SentenceLexeme.id)
+                    select(ChunkLexeme, SentenceChunk, Sentence)
+                    .join(SentenceChunk, SentenceChunk.id == ChunkLexeme.chunk_id)
+                    .join(Sentence, Sentence.id == SentenceChunk.sentence_id)
+                    .where(ChunkLexeme.lexeme_id == lexeme.id)
+                    .order_by(ChunkLexeme.id)
                 ).first()
-                sample_sentence = sample[1].text if sample else None
-                sample_translation = sample[1].translation_zh if sample else None
+                sample_chunk = sample[1].text if sample else None
+                sample_sentence = sample[2].text if sample else None
+                sample_translation = sample[2].translation_zh if sample else None
                 lexeme_info = LexemeCardInfo(
                     id=lexeme.id,
-                    lemma=lexeme.lemma,
+                    headword=lexeme.headword,
                     sense_label=lexeme.sense_label,
                     gloss=lexeme.gloss,
                     translation_en=lexeme.translation_en,
                     translation_zh=lexeme.translation_zh,
+                    sample_chunk=sample_chunk,
                     sample_sentence=sample_sentence,
                     sample_sentence_translation=sample_translation,
                 )

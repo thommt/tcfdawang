@@ -49,11 +49,12 @@ class SentenceCardInfo(BaseModel):
 
 class LexemeCardInfo(BaseModel):
     id: int
-    lemma: str
+    headword: str
     sense_label: Optional[str] = None
     gloss: Optional[str] = None
     translation_en: Optional[str] = None
     translation_zh: Optional[str] = None
+    sample_chunk: Optional[str] = None
     sample_sentence: Optional[str] = None
     sample_sentence_translation: Optional[str] = None
 

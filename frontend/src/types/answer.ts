@@ -32,34 +32,43 @@ export interface Sentence {
   difficulty?: string | null;
   extra: Record<string, unknown>;
   created_at: string;
-  lexemes: SentenceLexemeUsage[];
+  chunks: SentenceChunk[];
 }
 
 export interface Lexeme {
   id: number;
-  lemma: string;
+  headword: string;
   sense_label?: string | null;
   gloss?: string | null;
   translation_en?: string | null;
   translation_zh?: string | null;
   pos_tags?: string | null;
-  notes?: string | null;
-  complexity_level?: string | null;
+  difficulty?: string | null;
   hash: string;
-  is_manual: boolean;
   extra: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
 
-export interface SentenceLexemeUsage {
+export interface ChunkLexemeUsage {
   id: number;
-  sentence_id: number;
+  chunk_id: number;
   lexeme_id: number;
   order_index: number;
-  context_note?: string | null;
-  translation_override?: string | null;
+  role?: string | null;
   lexeme: Lexeme;
+}
+
+export interface SentenceChunk {
+  id: number;
+  sentence_id: number;
+  order_index: number;
+  text: string;
+  translation_en?: string | null;
+  translation_zh?: string | null;
+  chunk_type?: string | null;
+  extra?: Record<string, unknown>;
+  lexemes: ChunkLexemeUsage[];
 }
 
 export interface Paragraph {

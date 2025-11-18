@@ -3,7 +3,7 @@ from typing import Optional, List
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from app.models.lexeme import SentenceLexemeRead
+from app.models.lexeme import SentenceChunkRead
 
 
 class SentenceRead(BaseModel):
@@ -16,7 +16,7 @@ class SentenceRead(BaseModel):
     difficulty: Optional[str] = None
     extra: dict = Field(default_factory=dict)
     created_at: datetime
-    lexemes: List['SentenceLexemeRead'] = Field(default_factory=list)
+    chunks: List[SentenceChunkRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

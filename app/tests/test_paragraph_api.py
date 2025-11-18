@@ -190,12 +190,14 @@ def test_sentence_split_task(client: TestClient, session: Session) -> None:
     assert response.status_code == 201
     payload = response.json()
     assert payload["status"] == "succeeded"
-    from app.db.schemas import SentenceLexeme, Lexeme  # local import to avoid circular
+    from app.db.schemas import SentenceChunk, ChunkLexeme, Lexeme  # local import to avoid circular
 
-    links = session.exec(select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence.id)).all()
+    chunks = session.exec(select(SentenceChunk).where(SentenceChunk.sentence_id == sentence.id)).all()
+    assert len(chunks) == 1
+    links = session.exec(select(ChunkLexeme).where(ChunkLexeme.chunk_id == chunks[0].id)).all()
     assert len(links) == 1
     lexeme = session.exec(select(Lexeme).where(Lexeme.id == links[0].lexeme_id)).first()
-    assert lexeme.lemma == "bonjour"
+    assert lexeme.headword == "bonjour"
     assert lexeme.translation_zh == "你好"
 
 

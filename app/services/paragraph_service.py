@@ -10,10 +10,11 @@ from app.db.schemas import (
     Sentence as SentenceSchema,
     Answer as AnswerSchema,
     Lexeme as LexemeSchema,
-    SentenceLexeme as SentenceLexemeSchema,
+    SentenceChunk as SentenceChunkSchema,
+    ChunkLexeme as ChunkLexemeSchema,
 )
 from app.models.paragraph import ParagraphRead, SentenceRead
-from app.models.lexeme import SentenceLexemeRead, LexemeRead
+from app.models.lexeme import SentenceChunkRead, ChunkLexemeRead, LexemeRead
 
 
 class ParagraphService:
@@ -41,24 +42,41 @@ class ParagraphService:
             ).all()
         )
         sentence_ids = [sentence.id for sentence in sentences]
-        lexeme_map: dict[int, list[SentenceLexemeRead]] = {sid: [] for sid in sentence_ids if sid is not None}
+        chunk_map: dict[int, list[SentenceChunkRead]] = {sid: [] for sid in sentence_ids if sid is not None}
+        chunk_id_map: dict[int, SentenceChunkRead] = {}
         if sentence_ids:
-            rows = self.session.exec(
-                select(SentenceLexemeSchema, LexemeSchema)
-                .join(LexemeSchema, LexemeSchema.id == SentenceLexemeSchema.lexeme_id)
-                .where(SentenceLexemeSchema.sentence_id.in_(sentence_ids))
-                .order_by(SentenceLexemeSchema.order_index)
+            chunk_rows = self.session.exec(
+                select(SentenceChunkSchema)
+                .where(SentenceChunkSchema.sentence_id.in_(sentence_ids))
+                .order_by(SentenceChunkSchema.order_index)
             ).all()
-            for association, lexeme in rows:
-                lexeme_read = LexemeRead.model_validate(lexeme)
-                assoc_data = association.model_dump()
-                assoc_data["lexeme"] = lexeme_read
-                lexeme_read_entry = SentenceLexemeRead(**assoc_data)
-                lexeme_map.setdefault(association.sentence_id, []).append(lexeme_read_entry)
+            for chunk in chunk_rows:
+                chunk_data = chunk.model_dump()
+                chunk_data["lexemes"] = []
+                chunk_read = SentenceChunkRead(**chunk_data)
+                chunk_map.setdefault(chunk.sentence_id, []).append(chunk_read)
+                chunk_id_map[chunk.id] = chunk_read
+            chunk_ids = [chunk.id for chunk in chunk_rows]
+            if chunk_ids:
+                lexeme_rows = self.session.exec(
+                    select(ChunkLexemeSchema, LexemeSchema)
+                    .join(LexemeSchema, LexemeSchema.id == ChunkLexemeSchema.lexeme_id)
+                    .where(ChunkLexemeSchema.chunk_id.in_(chunk_ids))
+                    .order_by(ChunkLexemeSchema.order_index)
+                ).all()
+                for association, lexeme in lexeme_rows:
+                    chunk_read = chunk_id_map.get(association.chunk_id)
+                    if not chunk_read:
+                        continue
+                    lexeme_read = LexemeRead.model_validate(lexeme)
+                    assoc_data = association.model_dump()
+                    assoc_data["lexeme"] = lexeme_read
+                    chunk_lexeme = ChunkLexemeRead(**assoc_data)
+                    chunk_read.lexemes.append(chunk_lexeme)
         sentence_reads = []
         for sentence in sentences:
             sentence_data = sentence.model_dump()
-            sentence_data["lexemes"] = lexeme_map.get(sentence.id, [])
+            sentence_data["chunks"] = chunk_map.get(sentence.id, [])
             sentence_reads.append(SentenceRead.model_validate(sentence_data))
         data = paragraph.model_dump()
         data["sentences"] = sentence_reads

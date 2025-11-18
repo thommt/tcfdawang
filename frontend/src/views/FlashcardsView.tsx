@@ -105,11 +105,12 @@ export default defineComponent({
         <div class="card-section">
           <h3>词块卡片</h3>
           <p class="card__text">
-            {lexeme.lemma} {lexeme.sense_label && <small>({lexeme.sense_label})</small>}
+            {lexeme.headword} {lexeme.sense_label && <small>({lexeme.sense_label})</small>}
           </p>
           {lexeme.gloss && <p class="card__translation">释义：{lexeme.gloss}</p>}
           <p class="card__translation">英文：{lexeme.translation_en ?? '—'}</p>
           <p class="card__translation">中文：{lexeme.translation_zh ?? '—'}</p>
+          {lexeme.sample_chunk && <p class="card__meta">所在记忆块：{lexeme.sample_chunk}</p>}
           {lexeme.sample_sentence && (
             <p class="card__meta">
               示例：{lexeme.sample_sentence}

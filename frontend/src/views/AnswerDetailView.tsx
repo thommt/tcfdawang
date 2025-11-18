@@ -271,21 +271,44 @@ export default defineComponent({
                         >
                           {splittingSentenceId.value === sentence.id
                             ? '拆分中...'
-                            : sentence.lexemes && sentence.lexemes.length > 0
-                            ? '重新拆分'
-                            : '生成拆分'}
+                            : sentence.chunks && sentence.chunks.length > 0
+                            ? '重新生成 Chunk'
+                            : '生成 Chunk'}
                         </button>
                       </div>
-                      {sentence.lexemes && sentence.lexemes.length > 0 ? (
-                        <ul class="lexeme-list">
-                          {sentence.lexemes.map((usage) => (
-                            <li key={usage.id}>
-                              <strong>{usage.lexeme.lemma}</strong>
-                              {usage.lexeme.translation_zh && <span> · {usage.lexeme.translation_zh}</span>}
-                              {usage.lexeme.translation_en && !usage.lexeme.translation_zh && (
-                                <span> · {usage.lexeme.translation_en}</span>
+                      {sentence.chunks && sentence.chunks.length > 0 ? (
+                        <ul class="chunk-list">
+                          {sentence.chunks.map((chunk) => (
+                            <li key={chunk.id}>
+                              <p>
+                                <strong>Chunk {chunk.order_index}:</strong> {chunk.text}
+                              </p>
+                              {(chunk.translation_en || chunk.translation_zh) && (
+                                <p class="chunk-translation">
+                                  {chunk.translation_en && <span>EN: {chunk.translation_en}</span>}
+                                  {chunk.translation_zh && (
+                                    <span style="margin-left:0.5rem;">中: {chunk.translation_zh}</span>
+                                  )}
+                                </p>
                               )}
-                              {usage.lexeme.sense_label && <em> ({usage.lexeme.sense_label})</em>}
+                              {chunk.lexemes && chunk.lexemes.length > 0 ? (
+                                <ul class="lexeme-list">
+                                  {chunk.lexemes.map((usage) => (
+                                    <li key={usage.id}>
+                                      <strong>{usage.lexeme.headword}</strong>
+                                      {usage.lexeme.translation_zh && (
+                                        <span> · {usage.lexeme.translation_zh}</span>
+                                      )}
+                                      {usage.lexeme.translation_en && !usage.lexeme.translation_zh && (
+                                        <span> · {usage.lexeme.translation_en}</span>
+                                      )}
+                                      {usage.lexeme.sense_label && <em> ({usage.lexeme.sense_label})</em>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <small>尚无关键词</small>
+                              )}
                             </li>
                           ))}
                         </ul>
