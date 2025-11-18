@@ -22,9 +22,4 @@ def run_chunk_lexeme_task(sentence_id: int, service: TaskService = Depends(get_t
     return service.run_chunk_lexeme_task(sentence_id)
 
 
-@router.post("/{sentence_id}/tasks/split-phrases", response_model=TaskRead, status_code=201)
-def run_split_phrase_task(sentence_id: int, service: TaskService = Depends(get_task_service)) -> TaskRead:
-    return service.run_sentence_split_task(sentence_id)
-
-
 __all__ = ["router"]

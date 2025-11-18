@@ -78,6 +78,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 > **答案分组说明**：`descriptor` 字段用来概括答案的主旨或主题——对于需要表态的问题，可取值如 `support`/`oppose`；对于开放题（例如“最喜欢的科目是什么”），则可用 `math`、`physics` 等描述内容的标签。若题目存在多个主旨/结构完全不同的回答，就分别建立 `AnswerGroup(descriptor=…)`。T2 对话还可利用 `dialogue_profile`（例如 `examiner_attitude=stern`、`detail_level=concise`、`user_persona` 来源于全局设置）区分“同主题但不同考官态度/语体/人设”的答案组。
 
 > **Chunk & Lexeme 拆分说明**：对句子进行拆解时，先触发 `chunk_sentence` 任务生成 3-6 个记忆块（`SentenceChunk`，含原文与中英翻译，顺序与句子对应）；通过质检确保 chunk 覆盖与翻译一致并可重复迭代。随后触发 `lexeme_from_chunks` 任务：以 chunk 为输入，生成若干 `Lexeme`（命名为 headword、附带 sense/gloss/pos/difficulty，并与 chunk 建立 `ChunkLexeme` 关联）。`Lexeme` 可跨句复用，`ChunkLexeme` 仅与所属 chunk 关联，无需对句全局排序。前端需显示句子是否已有 chunk/lexeme，可单独重试 chunk 或 lexeme 任务。
+>
+> 质检失败时需要记录问题（`chunk_issues` / `lexeme_issues`）到 `sentence.extra`，并在 LLMConversation 中保留完整 prompt 与失败原因，前端应提示用户并允许重试。
 
 ## 5. 关键流程
 
@@ -173,14 +175,14 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - `PUT /lexemes/{id}` 更新单个 Lexeme（含 sense/翻译）。
    - `POST /lexemes/{id}/merge` 将多个 lexeme 列表合并至目标 ID。
    - `PUT /sentences/{sentence_id}/lexemes` 批量更新某句与 Lexeme 的关联。
-4. `FlashcardProgress` 与收藏在合并时同步迁移：迁移到主 lexeme，保留历史记录。
+4. 合并时需同步更新 `FlashcardProgress` 与收藏，使其指向主 lexeme，保留历史记录。
 5. 抓取题目产生的 `source_url`、`source_name` 应在 Question 中记录，供后续溯源；题目详情页显示原始 URL 并可一键重新抓取/更新。
 
 ### 5.10 收藏/播放列表与 TTS（下一期扩展）
 1. **多收藏列表**：
    - 新建 `Collection` 表（id、name、description、type(enum: favorite/playlist)、settings(json)、created_at、updated_at）。
    - `CollectionItem` 表（collection_id、entity_type(answer/paragraph/sentence/lexeme)、entity_id、order_index、per_item_settings(json)、repeat_count）。
-   - 允许一个实体加入多个收藏列表；原 `Favorite` 可视为系统默认收藏列表（或迁移到 Collection）。
+   - 允许一个实体加入多个收藏列表；原 `Favorite` 可视为系统默认收藏列表。
 2. **播放列表**：
    - 播放列表由收藏列表复制生成，允许追加播放专属设置，如：播放顺序、全局句子停顿、播放速度、是否播放翻译（及选择翻译语言）、重复次数。
    - 用户可拖拽重排、复制某个条目、对单个条目覆盖全局设置。若启用全局设置覆盖，需弹窗提示会影响所有条目。
@@ -214,8 +216,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - `POST /sessions/{id}/llm/eval` 触发评估轮次（可使用 WebSocket 推送）
 - `POST /answers/{id}/finalize` 将 session 最终结果固化为 Answer
 - `GET /answers/{id}` 查看答案结构、句子、图数据
-   - `POST /sentences/{id}/tasks/chunk`：触发句子拆分为记忆块（可选参数：是否强制、指定范围）；成功后写入 `SentenceChunk`
-   - `POST /sentences/{id}/tasks/lexeme-from-chunks`：基于已存在的 chunk 生成关键词 `Lexeme`，建立 `ChunkLexeme` 关联
+   - `POST /sentences/{id}/tasks/chunks`：触发句子拆分为记忆块（可选参数：是否强制、指定范围）；成功后写入 `SentenceChunk`
+   - `POST /sentences/{id}/tasks/chunk-lexemes`：基于已存在的 chunk 生成关键词 `Lexeme`，建立 `ChunkLexeme` 关联
    - `GET /sentences/{id}/chunks`：读取句子对应的 chunk+lexeme 结构，供前端展示/复习
 - `POST /answers/{id}/structure-graph` 触发可选的篇章图分析任务
 - `GET /flashcards/due`、`POST /flashcards/{id}/result`
@@ -223,6 +225,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - `POST /questions/fetch`：根据 URL 列表触发抓取任务，返回任务信息+结果预览
 - `GET /questions/fetch/results`：根据 task_id 获取抓取结果列表
 - `GET /tasks`、`GET /tasks/{id}`：查询后台任务状态；`POST /tasks/{id}/retry` 重试单个任务；`DELETE /tasks/{id}` 取消任务；`POST /answers/{id}/tasks` 以任务类型为参数补充未执行步骤
+- `GET /llm-conversations`：列出最近的 LLM 调用记录（可按 session_id、task_id 过滤），便于排查 prompt 与输出
 - `GET /favorites`、`POST /favorites`、`DELETE /favorites/{id}`：收藏列表及操作
 - `GET /tags`（可选预设标签）、`GET /questions?tag=xxx`：基于 `QuestionTag` 表过滤；题目 CRUD 中需支持标签编辑
 - `GET /lexemes`、`PUT /lexemes/{id}`、`POST /lexemes/{id}/merge`：Lexeme 管理；Chunk 绑定/解绑通过 `ChunkLexeme` API 完成

@@ -23,8 +23,9 @@
 | `/questions` | 题目管理 | 列表、筛选、CRUD、CSV 导入、抓取对话框 |
 | `/questions/:id` | 题目详情 | 查看题目元数据、答案组、开始学习/复习、抓取记录 |
 | `/sessions/:id` | 学习工作台 | 进行答案撰写、LLM 评估、确认流程 |
-| `/answers/:id` | 答案结构浏览 | 段落/句子详情、翻译、图结构、拆分状态 |
-| `/flashcards` | 抽认卡训练 | 句子/lexeme 复习、结果提交 |
+| `/answers/:id` | 答案结构浏览 | 段落/句子详情、翻译、图结构、Chunk/lexeme 状态 |
+| `/flashcards` | 抽认卡训练 | 句子/Chunk/Lexeme 复习、结果提交 |
+| `/llm-conversations` | LLM 对话日志 | 查看最近调用（prompt+result），支持过滤 |
 | `/collections` | 收藏与播放列表 | 管理多个收藏列表/播放列表、播放设置、导出 |
 | `/lexemes` | Lexeme 管理 | 查询/编辑/合并/重新关联 |
 | `/tasks` | 任务中心 | 查看全部后台任务，支持重试/取消 |
@@ -84,20 +85,25 @@
 
 - **摘要区**：显示 Answer title、版本信息、所属 Question/descriptor。
 - **段落树**：左侧树/列表显示 Paragraph，点击展开句子（Sentence）。
-- **句子卡片**：展示原文、翻译、难度、拆分状态（已/未）。按钮：
-  - `生成拆分`（split_phrase）或 `重新拆分`。
-  - `收藏句子`。
-  - `查看 Lexeme`（弹出当前句子的词块列表，每项可跳转到 Lexeme 管理页面）。
+- **句子卡片**：展示原文、翻译、难度以及 Chunk/Lexeme 状态。
+  - 按钮：
+    - `生成记忆块`：调用 `POST /sentences/{id}/tasks/chunks`，显示 loading/禁用状态。
+    - `生成关键词`：调用 `POST /sentences/{id}/tasks/chunk-lexemes`，若无 chunk 则提示用户先生成。
+  - 若 `sentence.extra.chunk_issues` 或 `lexeme_issues` 存在，需以醒目的错误提示展示，并指引用户重试。
+- **Chunk & Lexeme 列表**：
+  - 每个 chunk 展示原文 + EN/ZH 翻译 + chunk_type，嵌套对应 Lexeme（headword、翻译、sense）。
+  - Lexeme 条目提供“查看详情”跳转 `/lexemes?id=xxx`。
 - **图结构视图**（可选）：若已生成 graph，使用力导图或流程图展示；若未生成，显示按钮触发 `POST /answers/{id}/structure-graph`。
-- **LLM 日志**：展示与此 Answer 相关的 LLMConversation，支持按目的过滤。
+- **LLM 日志入口**：展示最近的 chunk/lexeme 任务记录，提供链接跳转 `/llm-conversations`。
 
 ## 8. 抽认卡（`/flashcards`）
 
-- **切换模式**：句子 / Lexeme。
+- **切换模式**：句子 / Chunk / Lexeme。
 - **队列视图**：显示今日待复习数、已完成数。
 - **答题交互**：
   - 句子模式：显示中文或英文提示，输入法语答案或点击“显示答案”；用户选择“对/错/困难”。
-  - Lexeme 模式：展示 sense_label/gloss，再让用户说出法语表达。
+  - Chunk 模式：展示记忆块原文+译文，提示用户复述 chunk；可显示所属句子的链接。
+  - Lexeme 模式：展示 headword/sense_label/gloss，并引用所属 chunk 作为语境。
   - 支持快捷键（1=对，2=困难，3=错）。
 - **统计面板**：展示连胜、下次复习日期。
 
@@ -122,33 +128,40 @@
 
 ## 10. Lexeme 管理（`/lexemes`）
 
-- **搜索栏**：按 lemma、sense_label、POS、收藏状态过滤。
-- **表格列**：lemma、sense_label、gloss、pos、引用次数、上次编辑时间、是否人工、收藏/SRS 状态。
+- **搜索栏**：按 headword、sense_label、POS、收藏状态过滤。
+- **表格列**：headword、sense_label、gloss、pos、引用次数、上次编辑时间、是否人工、收藏/SRS 状态。
 - **操作**：
   - `编辑`：侧栏表单修改 sense、翻译、笔记（设置 is_manual）。
-  - `合并`：多选后点击“合并”，指定主 Lexeme，显示预览（将迁移 SentenceLexeme、收藏、SRS）。
-  - `拆分/重新关联`：在某个 Lexeme 详情页列出引用句子，可移除并分配到新 Lexeme。
+- `合并`：多选后点击“合并”，指定主 Lexeme，显示预览（会更新相关 `ChunkLexeme`、收藏、SRS 记录）。
+  - `拆分/重新关联`：在某个 Lexeme 详情页列出引用 chunk，可移除并分配到新 Lexeme。
 
-## 11. 任务中心（`/tasks`）
+## 11. LLM 对话日志（`/llm-conversations`）
+
+- 列表展示最近的 LLMConversation：列包含 ID、purpose、task/session、时间。
+- 支持过滤：session_id、task_id、purpose（chunk_sentence、chunk_lexeme、translate…）。
+- 每行可展开查看 prompt/结果（JSON 形式），并提供复制按钮，方便排查问题。
+- 从答案详情或任务中心点击“查看全文”时，可带 query 参数跳转并自动滚动到目标记录。
+
+## 12. 任务中心（`/tasks`）
 
 - 表格列：任务类型、关联实体（Session/Answer/Question）、状态、进度、开始/结束时间、错误信息。
 - 支持过滤（进行中、失败、我的 Session）。
 - 行操作：重试、取消、查看日志（链接到 LLMConversation）。
 - 全局 TaskIndicator 点击后默认跳转到 `/tasks` 并带过滤条件。
 
-## 12. 设置（`/settings/user-profile`）
+## 13. 设置（`/settings/user-profile`）
 
 - 表单字段：角色背景（中文描述）、沟通风格、语速、语体、偏好主题等。后端用于 `user_profile`。
 - 表单应支持保存/重置，保存后提示成功。
 
-## 13. 抓取任务 UI 流程
+## 14. 抓取任务 UI 流程
 
 1. 用户在 `/questions` 点击“抓取题目”，输入 URL 列表，并可指定自定义来源名称、是否立即导入。
 2. 提交后显示任务 ID，并提示可在任务中心查看进度。
 3. 抓取完成后，自动打开预览面板（或通知）。预览表格提供编辑、选择导入。
 4. 导入成功刷新题目列表，并显示导入统计。
 
-## 14. 无障碍与响应式
+## 15. 无障碍与响应式
 
 - 支持键盘导航和高对比度主题（至少为组件库默认方案）。
 - 响应式：桌面优先，保证在 1280px 以上布局舒适；在平板上缩为单列，隐藏次级面板（如任务列表可折叠）。

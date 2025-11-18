@@ -648,9 +648,6 @@ class TaskService:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
-    def run_sentence_split_task(self, sentence_id: int) -> TaskRead:
-        self.run_chunk_task(sentence_id)
-        return self.run_chunk_lexeme_task(sentence_id)
 
     def _build_lexeme_hash(self, lemma: str, sense_label: str, phrase_text: str) -> str:
         normalized_lemma = " ".join(lemma.strip().lower().split())
