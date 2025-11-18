@@ -3,7 +3,7 @@ import { useRoute, RouterLink } from 'vue-router';
 import { fetchAnswerById } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
-import { fetchParagraphsByAnswer } from '../api/paragraphs';
+import { fetchParagraphsByAnswer, runStructureTask } from '../api/paragraphs';
 import type { Answer, AnswerGroup, Paragraph } from '../types/answer';
 import type { Question } from '../types/question';
 
@@ -18,20 +18,46 @@ export default defineComponent({
     const loading = ref(true);
     const error = ref('');
     const paragraphs = ref<Paragraph[]>([]);
+    const structuring = ref(false);
+    const structureError = ref('');
+    const structureMessage = ref('');
+
+    async function loadParagraphStructure() {
+      paragraphs.value = await fetchParagraphsByAnswer(answerId);
+    }
 
     async function load() {
       loading.value = true;
       error.value = '';
+      structureError.value = '';
+      structureMessage.value = '';
       try {
         answer.value = await fetchAnswerById(answerId);
         group.value = await fetchAnswerGroupById(answer.value.answer_group_id);
         question.value = await fetchQuestionById(group.value.question_id);
-        paragraphs.value = await fetchParagraphsByAnswer(answerId);
+        await loadParagraphStructure();
       } catch (err) {
         error.value = '无法加载答案详情';
         throw err;
       } finally {
         loading.value = false;
+      }
+    }
+
+    async function rebuildStructure() {
+      if (structuring.value) return;
+      structuring.value = true;
+      structureError.value = '';
+      structureMessage.value = '';
+      try {
+        await runStructureTask(answerId);
+        await loadParagraphStructure();
+        structureMessage.value = '结构分析完成';
+      } catch (err) {
+        structureError.value = '触发结构分析失败';
+        console.error(err);
+      } finally {
+        structuring.value = false;
       }
     }
 
@@ -71,10 +97,18 @@ export default defineComponent({
             <pre>{answer.value.text}</pre>
           </article>
         )}
-        {paragraphs.value.length > 0 && (
-          <section class="paragraphs">
+        <section class="paragraphs">
+          <header class="paragraphs__header">
             <h4>段落结构</h4>
-            {paragraphs.value.map((paragraph) => (
+            <button type="button" onClick={rebuildStructure} disabled={structuring.value}>
+              {structuring.value ? '分析中...' : paragraphs.value.length ? '重新生成' : '生成结构'}
+            </button>
+          </header>
+          {structureError.value && <p class="error">{structureError.value}</p>}
+          {structureMessage.value && <p class="success">{structureMessage.value}</p>}
+          {paragraphs.value.length === 0 && !loading.value && <p>暂无结构化结果</p>}
+          {paragraphs.value.length > 0 &&
+            paragraphs.value.map((paragraph) => (
               <article key={paragraph.id} class="paragraph-card">
                 <header>
                   <strong>
@@ -92,8 +126,7 @@ export default defineComponent({
                 </ol>
               </article>
             ))}
-          </section>
-        )}
+        </section>
       </section>
     );
   },

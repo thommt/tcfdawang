@@ -188,7 +188,10 @@ class TaskService:
                 question_body=question.body,
                 answer_text=answer.text,
             )
-            for idx, para in enumerate(structure.get("paragraphs", []), start=1):
+            if not isinstance(structure, dict):
+                raise LLMError("LLM 没有返回结构化结果")
+            paragraphs_payload = structure.get("paragraphs") or []
+            for idx, para in enumerate(paragraphs_payload, start=1):
                 paragraph = Paragraph(
                     answer_id=answer_id,
                     order_index=idx,

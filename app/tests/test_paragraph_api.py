@@ -3,7 +3,7 @@ from typing import Generator
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.main import app
 from app.api.dependencies import get_session, get_llm_client
@@ -33,9 +33,9 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
             return {
                 "paragraphs": [
                     {
-                        "role": "intro",
-                        "summary": "summary",
-                        "sentences": [{"text": "Bonjour", "translation": "Hello"}],
+                        "role": "body",
+                        "summary": "LLM summary",
+                        "sentences": [{"text": "Salut", "translation": "Hi"}],
                     }
                 ]
             }
@@ -87,3 +87,25 @@ def test_list_paragraphs(client: TestClient, session: Session) -> None:
     assert len(data) == 1
     assert data[0]["role_label"] == "intro"
     assert len(data[0]["sentences"]) == 1
+
+
+def test_run_structure_task(client: TestClient, session: Session) -> None:
+    answer_id = _create_answer(session)
+    response = client.post(f"/answers/{answer_id}/tasks/structure")
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "succeeded"
+
+    paragraphs = session.exec(
+        select(Paragraph).where(Paragraph.answer_id == answer_id).order_by(Paragraph.order_index)
+    ).all()
+    assert len(paragraphs) == 1
+    assert paragraphs[0].role_label == "body"
+    assert paragraphs[0].summary == "LLM summary"
+
+    sentences = session.exec(
+        select(Sentence).where(Sentence.paragraph_id == paragraphs[0].id).order_by(Sentence.order_index)
+    ).all()
+    assert len(sentences) == 1
+    assert sentences[0].text == "Salut"
+    assert sentences[0].translation == "Hi"
