@@ -43,6 +43,13 @@ export default defineComponent({
       sessionHistory.value ? sessionHistory.value.tasks.filter((task) => task.type === 'compose') : []
     );
     const conversations = computed(() => sessionHistory.value?.conversations ?? []);
+    const reviewNotesHistory = computed(() => {
+      const entries = sessionHistory.value?.session.progress_state?.review_notes_history;
+      if (!entries || !Array.isArray(entries)) {
+        return [];
+      }
+      return entries as Array<{ note: string; saved_at: string }>;
+    });
     const isReviewSession = computed(() => session.value?.session_type === 'review');
     const reviewSourceId = computed(() => {
       const current = session.value;
@@ -239,6 +246,23 @@ export default defineComponent({
             </table>
           )}
         </section>
+        {isReviewSession.value && (
+          <section class="history-panel">
+            <h3>改进历史</h3>
+            {historyLoading.value && <p>加载中...</p>}
+            {!historyLoading.value && reviewNotesHistory.value.length === 0 && <p>尚无改进记录。</p>}
+            {!historyLoading.value && reviewNotesHistory.value.length > 0 && (
+              <ul class="history-list">
+                {reviewNotesHistory.value.map((entry, index) => (
+                  <li key={`${entry.saved_at}-${index}`}>
+                    <header>{new Date(entry.saved_at).toLocaleString()}</header>
+                    <p>{entry.note || '未记录任何内容'}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         <section class="history-panel">
           <h3>LLM 日志</h3>
           {historyLoading.value && <p>加载中...</p>}

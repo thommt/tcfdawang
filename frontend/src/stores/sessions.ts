@@ -93,12 +93,22 @@ export const useSessionStore = defineStore('sessions', {
           ? this.currentSession
           : this.sessions.find((session) => session.id === sessionId) || null;
       const baseState = current?.progress_state ?? {};
-      return this.updateSession(sessionId, {
+      const history = Array.isArray(baseState.review_notes_history)
+        ? [...(baseState.review_notes_history as Array<Record<string, string>>)]
+        : [];
+      history.push({
+        note: notes,
+        saved_at: new Date().toISOString(),
+      });
+      const updated = await this.updateSession(sessionId, {
         progress_state: {
           ...baseState,
           review_notes: notes,
+          review_notes_history: history,
         },
       });
+      await this.loadSessionHistory(sessionId);
+      return updated;
     },
     async loadSessionHistory(sessionId: number) {
       this.historyLoading = true;
