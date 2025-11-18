@@ -91,7 +91,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 
 ### 5.2 首次学习流程
 > **默认 Session 学习路径**：每次 Session（无论首次还是复习）都遵循“用户先独立写完整草稿 → 触发评估任务 → 阅读反馈并决定下一步 → 如有需要，再触发 LLM 生成范文 → 对生成结果执行结构/翻译/Chunk/Lexeme 拆解 → 进入 chunk→句子学习”的顺序。首次 Session 结束后，题目至少会拥有一个 `AnswerGroup` 与其 `Answer(version_index=1)`，并在 `AnswerGroup.descriptor`/`dialogue_profile` 中记录主旨与人设。
-1. 用户在前端选择题目，创建 `Session(session_type=first)`。
+1. 用户在前端选择题目并点击“开始学习”，系统在后台自动创建 `Session(session_type=first)`（用户不直接管理 Session 实体）。
 2. 用户录入答案（富文本/Markdown），前端调用 `POST /sessions/{id}/answers/draft`。
 3. 服务层调用 LangChain 流程“Answer Evaluation”，执行多轮对话（每轮提供指导、要求用户改进）。该评估通过异步任务（`Task` type=`eval`）完成，`Session.progress_state` 持久化当前轮次、草稿与 LLM 消息，用户可在前端查看任务进度、必要时手动重试。
 4. 用户确认最终答案 → 生成 `AnswerGroup`（若不存在，触发 LLM 生成 title/descriptor）与 `Answer(version_index=1)`。
@@ -106,7 +106,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 6. 生成抽认卡初始计划：为句子/短语创建 `FlashcardProgress`，设定固定间隔（如 1/3/7 天）。
 
 ### 5.3 复习流程
-1. 用户再次选择题目 → 创建 `Session(session_type=review)`。
+1. 用户再次选择题目并进入复习界面时，系统自动创建 `Session(session_type=review)`。
 2. 用户提交新答案草稿。
 3. LangChain 流程 `AnswerComparator`（task type=`compare`）对比主旨与结构：
    - 判断类别：`MAJOR_SHIFT`（主旨或结构变化大） vs `ALIGNED`。

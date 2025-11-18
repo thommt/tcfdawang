@@ -1,5 +1,5 @@
 import { defineComponent, onMounted, ref, computed } from 'vue';
-import { useRoute, useRouter, RouterLink } from 'vue-router';
+import { useRoute, RouterLink } from 'vue-router';
 import { useQuestionStore } from '../stores/questions';
 import { useSessionStore } from '../stores/sessions';
 import type { Question } from '../types/question';
@@ -11,7 +11,6 @@ export default defineComponent({
   name: 'QuestionDetailView',
   setup() {
     const route = useRoute();
-    const router = useRouter();
     const questionId = Number(route.params.id);
     const questionStore = useQuestionStore();
     const sessionStore = useSessionStore();
@@ -50,11 +49,6 @@ export default defineComponent({
       } finally {
         loading.value = false;
       }
-    }
-
-    async function createSession() {
-      const session = await sessionStore.createSession(questionId);
-      router.push(`/sessions/${session.id}`);
     }
 
     async function handleDeleteGroup(groupId: number) {
@@ -104,7 +98,6 @@ export default defineComponent({
               <strong>标签：</strong>
               {question.value.tags.join(', ') || '暂无'}
             </p>
-            <button onClick={createSession}>创建学习 Session</button>
           </div>
         )}
 
