@@ -49,13 +49,15 @@ class SessionService:
 
     def create_session(self, data: SessionCreate) -> SessionRead:
         self._ensure_question_exists(data.question_id)
+        progress_state = dict(data.progress_state or {})
+        progress_state.setdefault("phase", "draft")
         entity = SessionSchema(
             question_id=data.question_id,
             answer_id=data.answer_id,
             session_type=data.session_type,
             status=data.status,
             user_answer_draft=data.user_answer_draft,
-            progress_state=data.progress_state,
+            progress_state=progress_state,
         )
         self.session.add(entity)
         self.session.commit()
@@ -221,7 +223,7 @@ class SessionService:
             session_type="review",
             status="draft",
             user_answer_draft=answer.text,
-            progress_state={"review_source_answer_id": answer.id},
+            progress_state={"review_source_answer_id": answer.id, "phase": "draft"},
         )
         self.session.add(entity)
         self.session.commit()

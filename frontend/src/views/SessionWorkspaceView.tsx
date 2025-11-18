@@ -89,6 +89,11 @@ export default defineComponent({
       };
     });
 
+    const currentPhase = computed(() => {
+      const phase = session.value?.progress_state?.phase as string | undefined;
+      return phase || 'draft';
+    });
+
     async function loadReviewSource(answerId: number | null) {
       if (!answerId) {
         reviewSourceAnswer.value = null;
@@ -186,7 +191,7 @@ export default defineComponent({
     const composing = ref(false);
 
     async function composeAnswer() {
-      if (!session.value) return;
+      if (!session.value || !lastEval.value) return;
       composing.value = true;
       try {
         const task = await sessionStore.composeAnswer(session.value.id);
@@ -304,6 +309,16 @@ export default defineComponent({
         )}
 
         <section class="workspace">
+          <div class="phase-indicator">
+            当前阶段：<strong>{currentPhase.value}</strong>
+            {currentPhase.value === 'draft' && <span class="hint">请先撰写草稿并请求评估</span>}
+            {currentPhase.value === 'await_eval_confirm' && (
+              <span class="hint">已获得评估反馈，可生成范文并进入学习</span>
+            )}
+            {currentPhase.value === 'compose_completed' && (
+              <span class="hint">范文已生成，可继续结构化与 chunk 学习</span>
+            )}
+          </div>
           <label>
             <span>草稿</span>
             <textarea
@@ -322,7 +337,11 @@ export default defineComponent({
             <button onClick={evaluate} disabled={evalRunning.value || sessionCompleted.value}>
               {evalRunning.value ? '评估中...' : '请求评估'}
             </button>
-            <button onClick={composeAnswer} disabled={composing.value || sessionCompleted.value}>
+            <button
+              onClick={composeAnswer}
+              disabled={composing.value || sessionCompleted.value || !lastEval.value}
+              title={!lastEval.value ? '请先完成评估' : ''}
+            >
               {composing.value ? '生成中...' : 'LLM 生成答案'}
             </button>
             <button type="button" onClick={openFinalize} disabled={sessionCompleted.value}>

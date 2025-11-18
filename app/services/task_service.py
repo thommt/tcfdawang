@@ -67,10 +67,12 @@ class TaskService:
                 latency_ms=latency,
             )
             self.session.add(conversation)
-            session_entity.progress_state = session_entity.progress_state or {}
+            progress_state = dict(session_entity.progress_state or {})
             eval_payload = dict(eval_result)
             eval_payload["saved_at"] = saved_at.isoformat()
-            session_entity.progress_state["last_eval"] = eval_payload
+            progress_state["last_eval"] = eval_payload
+            progress_state["phase"] = "await_eval_confirm"
+            session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
             task.status = "succeeded"
@@ -124,10 +126,12 @@ class TaskService:
                 latency_ms=latency,
             )
             self.session.add(conversation)
-            session_entity.progress_state = session_entity.progress_state or {}
+            progress_state = dict(session_entity.progress_state or {})
             compose_payload = dict(compose_result)
             compose_payload["saved_at"] = saved_at.isoformat()
-            session_entity.progress_state["last_compose"] = compose_payload
+            progress_state["last_compose"] = compose_payload
+            progress_state["phase"] = "compose_completed"
+            session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
             task.status = "succeeded"
