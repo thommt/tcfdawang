@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import questions, fetch, sessions, tasks, paragraphs, sentences, flashcards
+from . import questions, fetch, sessions, tasks, paragraphs, sentences, flashcards, conversations
 
 api_router = APIRouter()
 api_router.include_router(questions.router)
@@ -12,5 +12,6 @@ api_router.include_router(tasks.router)
 api_router.include_router(paragraphs.router)
 api_router.include_router(sentences.router)
 api_router.include_router(flashcards.router)
+api_router.include_router(conversations.router)
 
 __all__ = ["api_router"]

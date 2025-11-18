@@ -76,12 +76,19 @@ PHRASE_SPLIT_HUMAN_PROMPT = (
     "题目标题: {question_title}\n"
     "题目内容摘要: {question_body}\n"
     "目标句子: {sentence_text}\n"
+    "拆分示例:\n"
+    "原句：Il est essentiel que les entreprises aident leurs nouveaux collaborateurs à s’adapter et à s’intégrer pour plusieurs raisons.\n"
+    "拆分词块：\n"
+    "1. Il est essentiel que\n"
+    "2. les entreprises aident leurs nouveaux collaborateurs\n"
+    "3. à s’adapter et à s’intégrer\n"
+    "4. pour plusieurs raisons\n"
     "上次拆分反馈: {known_issues}"
 )
 
 PHRASE_SPLIT_QUALITY_SYSTEM_PROMPT = (
     "你是TCF Canada 句子拆分质检助手。请根据原句与拆分结果，判断词块是否完整、覆盖是否充分、是否保留必要的语法成分，以及拆分出的词块是否与翻译对应。"
-    "如果词块遗漏冠词/介词、覆盖率明显不足、出现大量单词级碎片、词块与翻译不对应，应判定为不合格。"
+    "只有在出现明显问题（如确实缺少必要冠词/介词、覆盖率严重不足、出现大量孤立单词、翻译与短语含义完全不符）时才判定为不合格；若整体合理但存在轻微差异，请视为合格并返回空 issues。"
     "输出 JSON，包含 is_valid(bool) 与 issues(字符串列表)。{format_instructions}"
 )
 

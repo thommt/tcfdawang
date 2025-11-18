@@ -100,7 +100,7 @@ def build_phrase_split_chain(llm: BaseChatModel):
         ]
     )
     chain = prompt | llm | parser
-    return chain, parser
+    return chain, parser, prompt
 
 
 def build_phrase_split_quality_chain(llm: BaseChatModel):
@@ -112,4 +112,4 @@ def build_phrase_split_quality_chain(llm: BaseChatModel):
         ]
     )
     chain = prompt | llm | parser
-    return chain, parser
+    return chain, parser, prompt

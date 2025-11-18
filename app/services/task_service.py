@@ -401,7 +401,10 @@ class TaskService:
                 sentence_text=sentence.text,
                 known_issues=known_issues,
             )
+            split_prompt_messages = split_result.pop("_prompt_messages", [])
             phrases = split_result.get("phrases") or []
+            quality_prompt_messages: list[dict] = []
+            quality = None
             if phrases:
                 quality = self.llm_client.assess_phrase_split_quality(
                     question_type=question.type,
@@ -410,6 +413,7 @@ class TaskService:
                     sentence_text=sentence.text,
                     phrases=phrases,
                 )
+                quality_prompt_messages = quality.pop("_prompt_messages", [])
                 if quality and not quality.get("is_valid", True):
                     issues = quality.get("issues") or []
                     detail = "拆分质量不足"
@@ -419,6 +423,26 @@ class TaskService:
                         sentence.extra = sentence_extra
                         self.session.add(sentence)
                         self.session.commit()
+                    conversation = LLMConversation(
+                        session_id=None,
+                        task_id=task.id,
+                        purpose="split_phrase",
+                        messages={
+                            "split_prompt": split_prompt_messages,
+                            "quality_prompt": quality_prompt_messages,
+                            "input_sentence": sentence.text,
+                            "known_issues": known_issues,
+                        },
+                        result={
+                            "phrases": split_result.get("phrases"),
+                            "quality_check": quality,
+                            "error": detail,
+                        },
+                        model_name=getattr(self.llm_client, "model", None),
+                        latency_ms=None,
+                    )
+                    self.session.add(conversation)
+                    self.session.commit()
                     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
             sentence_extra.pop("split_issues", None)
             sentence.extra = sentence_extra
@@ -435,15 +459,17 @@ class TaskService:
                 hash_value = self._build_lexeme_hash(lemma, sense_label, phrase_text)
                 lexeme = self.session.exec(select(Lexeme).where(Lexeme.hash == hash_value)).first()
                 if not lexeme:
+                    normalized_pos = self._normalize_pos_tag(phrase.get("pos_tags"))
+                    normalized_difficulty = self._normalize_difficulty(phrase.get("difficulty"))
                     lexeme = Lexeme(
                         lemma=lemma,
                         sense_label=sense_label or None,
                         gloss=phrase.get("gloss"),
                         translation_en=phrase.get("translation_en"),
                         translation_zh=phrase.get("translation_zh"),
-                        pos_tags=phrase.get("pos_tags"),
+                        pos_tags=normalized_pos,
                         notes=phrase.get("notes"),
-                        complexity_level=phrase.get("difficulty"),
+                        complexity_level=normalized_difficulty,
                         hash=hash_value,
                         is_manual=False,
                         extra={},
@@ -465,12 +491,20 @@ class TaskService:
             self.session.commit()
             for lexeme_id in lexeme_ids_for_cards:
                 self._ensure_lexeme_flashcard(lexeme_id)
+            conversation_result = dict(split_result)
+            if quality is not None:
+                conversation_result["quality_check"] = quality
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,
                 purpose="split_phrase",
-                messages={"sentence": sentence.text},
-                result=split_result,
+                messages={
+                    "split_prompt": split_prompt_messages,
+                    "quality_prompt": quality_prompt_messages,
+                    "input_sentence": sentence.text,
+                    "known_issues": known_issues,
+                },
+                result=conversation_result,
                 model_name=getattr(self.llm_client, "model", None),
                 latency_ms=None,
             )
@@ -501,3 +535,30 @@ class TaskService:
         if normalized_phrase:
             parts.append(normalized_phrase)
         return "::".join(parts)
+
+    def _normalize_pos_tag(self, pos_value: str | None) -> str | None:
+        if not pos_value:
+            return None
+        normalized = " ".join(pos_value.strip().lower().split())
+        mapping = {
+            "noun": {"noun", "n", "名词"},
+            "noun phrase": {"noun phrase", "名词短语", "np"},
+            "verb": {"verb", "v", "动词"},
+            "verb phrase": {"verb phrase", "动词短语", "vp"},
+            "adjective": {"adjective", "adj", "形容词"},
+            "adverb": {"adverb", "adv", "副词"},
+            "expression": {"expression", "短语", "表达", "phrase"},
+            "preposition phrase": {"preposition phrase", "介词短语"},
+            "conjunction": {"conjunction", "连词"},
+        }
+        for canonical, aliases in mapping.items():
+            if normalized in aliases:
+                return canonical
+        return None
+
+    def _normalize_difficulty(self, difficulty: str | None) -> str | None:
+        if not difficulty:
+            return None
+        normalized = difficulty.strip().upper()
+        allowed = {"A1", "A2", "B1", "B2", "C1", "C2"}
+        return normalized if normalized in allowed else None

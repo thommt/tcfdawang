@@ -34,6 +34,11 @@ const routes: RouteRecordRaw[] = [
     path: '/flashcards',
     name: 'flashcards',
     component: () => import('../views/FlashcardsView.tsx')
+  },
+  {
+    path: '/llm-conversations',
+    name: 'llm-conversations',
+    component: () => import('../views/ConversationsView.tsx')
   }
 ];
 

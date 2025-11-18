@@ -17,7 +17,7 @@
    - 复习时比较主旨/结构，自动判断是否建立新答案；若沿用原主旨，则标注不足并生成 i+1 版本，再进入学习模式。
 3. **篇章结构与句子管理**
    - 答案拆解为段落、语块、句子；句子带中英翻译。
-   - 可选触发句子进一步拆分短语/单词，并记录对应翻译。
+   - 可选触发“句子 → 记忆 Chunk → 关键词 Lexeme”两段式拆分：先将句子拆成 3-6 个记忆块（带中英翻译），再针对每个 chunk 生成关键词/词条，便于抽认卡复习。
    - 将段落/语块关系存为图（顶点/边）以表达篇章逻辑。
 4. **抽认卡训练**
    - 支持句子级与词块级练习，默认为固定间隔复习策略；未来可替换为真正的间隔重复算法。
@@ -59,8 +59,9 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 | `Answer` | id、answer_group_id、version_index（最新为最高）、status(active/archived)、text、title、created_at |
 | `Paragraph` | id、answer_id、order_index、summary、role_label（如 intro/body/conclusion 或 T2 的 opening/turn/closing）、semantic_label（可选，用于描述语块主题） |
 | `Sentence` | id、paragraph_id、order_index、text_fr、translation_en、translation_zh, difficulty(optional) |
-| `Lexeme` | id、lemma、sense_label（LLM 生成的简短中文含义）、gloss（详细释义/例句）、pos_tags、translation_en、translation_zh、notes、complexity_level、hash(normalized form + sense_label)、is_manual(是否人工创建/编辑) |
-| `SentenceLexeme` | sentence_id、lexeme_id、order_index、context_note、translation_override? |
+| `SentenceChunk` | id、sentence_id、order_index、text、translation_en、translation_zh、chunk_type(可选)、extra |
+| `Lexeme` | id、headword(原 lemma)、sense_label、gloss、pos_tags(enum: noun/verb/adj/adv/expr/… )、translation_en、translation_zh、complexity_level(enum: A1~C2)、hash(基于 headword+sense+chunk text)、extra |
+| `ChunkLexeme` | chunk_id、lexeme_id、order_index、role? |
 | `Session` | id、question_id、answer_id?、user_answer_draft、session_type(first/review)、status(enum:draft/in_progress/submitted/completed)、progress_state(json，记录反馈轮次、LLM 日志指针等)、started_at、completed_at |
 | `Task` | id、session_id?、answer_id?、type(enum: eval, compose_answer, structure, translate, split_phrase, compare, gap_highlight, refine, …)、status(enum: pending/running/succeeded/failed/canceled)、payload(json)、result_summary(json)、progress(0-1)、error_message、created_at、updated_at、conversation_id? |
 | `LLMConversation` | id、session_id、task_id、purpose(eval/structure/compare/phrase_split等)、messages(json TEXT/JSONB)、result(json TEXT/JSONB)、model_name、latency_ms |
@@ -76,7 +77,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 
 > **答案分组说明**：`descriptor` 字段用来概括答案的主旨或主题——对于需要表态的问题，可取值如 `support`/`oppose`；对于开放题（例如“最喜欢的科目是什么”），则可用 `math`、`physics` 等描述内容的标签。若题目存在多个主旨/结构完全不同的回答，就分别建立 `AnswerGroup(descriptor=…)`。T2 对话还可利用 `dialogue_profile`（例如 `examiner_attitude=stern`、`detail_level=concise`、`user_persona` 来源于全局设置）区分“同主题但不同考官态度/语体/人设”的答案组。
 
-> **Lexeme 拆分说明**：拆分句子时仅在需要的句子上触发 `split_phrase` 任务；LLM 需基于语义成分（如名词短语、动词短语）输出片段，并尽量还原动词原形、过滤极度简单的词。每个片段需附带 `sense_label/gloss`，以区分一词多义场景；`hash` 由 `lemma + sense_label` 组成用于去重。拆出的词/短语通过 `Lexeme` 记录，`SentenceLexeme` 保存顺序与上下文（必要时可覆盖翻译）。前端需显示某句是否已有拆分，并允许手动发起或跳过拆分。
+> **Chunk & Lexeme 拆分说明**：对句子进行拆解时，先触发 `chunk_sentence` 任务生成 3-6 个记忆块（`SentenceChunk`，含原文与中英翻译，顺序与句子对应）；通过质检确保 chunk 覆盖与翻译一致并可重复迭代。随后触发 `lexeme_from_chunks` 任务：以 chunk 为输入，生成若干 `Lexeme`（命名为 headword、附带 sense/gloss/pos/difficulty，并与 chunk 建立 `ChunkLexeme` 关联）。`Lexeme` 可跨句复用，`ChunkLexeme` 仅与所属 chunk 关联，无需对句全局排序。前端需显示句子是否已有 chunk/lexeme，可单独重试 chunk 或 lexeme 任务。
 
 ## 5. 关键流程
 
@@ -96,7 +97,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - **StructureExtractor**（`structure`）：在 `Answer` 固化后，再独立调用 LLM 拆解段落→句子→关系，返回 JSON（包括排序、角色、关系，T2 需识别追问链路、角色以及“问/答/追问/评论”类型）。
    - `GraphBuilder`（`structure_graph`，可选）：从结构 JSON 解析节点与边，写入图表。仅在用户主动触发“篇章图分析”或题目设置要求时运行；默认可跳过，仅保留段落顺序。
    - `SentenceTranslator`（`translate`）：为每个句子生成中英翻译。
-   - **可选** `PhraseSplitter`（`split_phrase`）：仅在用户请求或句子超过复杂度阈值时触发，按语义成分拆解为短语/词并链接 `Lexeme`；每个句子需记录“已拆分/未拆分”状态，前端可手动切换。
+   - **ChunkExtractor**（`chunk_sentence`）：对选定句子调用 LLM，将句子拆成 3-6 个 `SentenceChunk`（含原文与中英翻译），并进行质检（覆盖度、语法完整性）。Chunk 记录直接与句子关联，可多次重试。
+   - **LexemeExtractor**（`lexeme_from_chunks`）：以 chunk 输出为输入，调用 LLM 为每个 chunk 提取 1~N 个关键词/中心词，生成 `Lexeme` 并通过 `ChunkLexeme` 关联。词性/难度需匹配约定枚举；若命中已有 lexeme 则复用。
    - 所有 Task 均进入全局队列异步执行；前端通过任务 API 轮询/订阅进度，用户可离开页面稍后再查看结果；在答案详情页需展示尚未完成/失败的任务，并提供单个任务的重试按钮。
 6. 生成抽认卡初始计划：为句子/短语创建 `FlashcardProgress`，设定固定间隔（如 1/3/7 天）。
 
@@ -115,7 +117,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 1. 后端根据 `FlashcardProgress.due_at` 输出今日到期卡片。
 2. 前端支持：
    - 句子模式：提示中文/英文翻译，用户回答法语。
-   - 词块模式：先练短语/单词，全部完成后再练整句。
+   - Chunk 模式：基于 `SentenceChunk` 练记忆块（展示 chunk 原文与翻译）。
+   - 词块/Lexeme 模式：先练各 chunk 的关键词，全部完成后可切回整句。
 3. 用户提交结果（对/错/困难），后端更新 `streak`、`interval_days`（使用简化表，例如 1→3→7→14→...），同时记录答题日志。
 4. 抽认卡调度可通过后台任务（批量更新 due_at、生成 new cards）运行，避免长事务。
 
@@ -211,7 +214,9 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - `POST /sessions/{id}/llm/eval` 触发评估轮次（可使用 WebSocket 推送）
 - `POST /answers/{id}/finalize` 将 session 最终结果固化为 Answer
 - `GET /answers/{id}` 查看答案结构、句子、图数据
-   - `POST /answers/{id}/phrase-split` 触发句子深度拆解（可选参数：是否强制拆分、最小复杂度、仅拆分指定句子）
+   - `POST /sentences/{id}/tasks/chunk`：触发句子拆分为记忆块（可选参数：是否强制、指定范围）；成功后写入 `SentenceChunk`
+   - `POST /sentences/{id}/tasks/lexeme-from-chunks`：基于已存在的 chunk 生成关键词 `Lexeme`，建立 `ChunkLexeme` 关联
+   - `GET /sentences/{id}/chunks`：读取句子对应的 chunk+lexeme 结构，供前端展示/复习
 - `POST /answers/{id}/structure-graph` 触发可选的篇章图分析任务
 - `GET /flashcards/due`、`POST /flashcards/{id}/result`
 - `GET /settings/user-profile`、`PUT /settings/user-profile`（全局考生人设配置，供 T2 生成使用）
@@ -220,8 +225,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - `GET /tasks`、`GET /tasks/{id}`：查询后台任务状态；`POST /tasks/{id}/retry` 重试单个任务；`DELETE /tasks/{id}` 取消任务；`POST /answers/{id}/tasks` 以任务类型为参数补充未执行步骤
 - `GET /favorites`、`POST /favorites`、`DELETE /favorites/{id}`：收藏列表及操作
 - `GET /tags`（可选预设标签）、`GET /questions?tag=xxx`：基于 `QuestionTag` 表过滤；题目 CRUD 中需支持标签编辑
-- `GET /lexemes`、`PUT /lexemes/{id}`、`POST /lexemes/{id}/merge`：Lexeme 管理
-- `PUT /sentences/{sentence_id}/lexemes`：更新句子与 Lexeme 的关联（可增删改）
+- `GET /lexemes`、`PUT /lexemes/{id}`、`POST /lexemes/{id}/merge`：Lexeme 管理；Chunk 绑定/解绑通过 `ChunkLexeme` API 完成
 - `GET /collections`、`POST /collections`、`PUT /collections/{id}`、`DELETE /collections/{id}`
 - `POST /collections/{id}/items`、`PUT /collection-items/{id}`、`DELETE /collection-items/{id}`
 - `POST /audio/generate`、`GET /audio/{id}`、`POST /playlists/{id}/export`
@@ -235,7 +239,9 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 3. **Structure Extraction**：输出段落/语块/句子 JSON，并包含角色标签、关系描述。
 4. **Graph Relation Builder**：基于结构描述构造图形节点/边。
 5. **Sentence Translation**：生成句子中英翻译。
-6. **Phrase Splitter**（可选）：将长句拆成短语/单词，并生成翻译。
+6. **Chunk Splitter & Lexeme Builder**：
+   - Prompt A（`chunk_sentence`）：输入题目信息+原句+上次失败原因，输出 3-6 个 chunk，字段包含 text/translation_en/translation_zh/order；附带 chunk 质检（覆盖度、语法完整性、翻译对应），失败信息写回 `sentence.extra.split_issues` 以便下次 prompt。
+   - Prompt B（`lexeme_from_chunks`）：输入句子与 chunk 列表，由 LLM 针对每个 chunk 生成 1-N 个 lexeme（headword/sense/gloss/translation/pos/difficulty）。输出中需指明所属 `chunk_order`，服务层据此写入 `Lexeme` 并创建 `ChunkLexeme`。此阶段也有质检（确保每个 chunk 至少有关键词、字段合法），失败信息写入 `chunk.extra`.
 7. **Answer Comparator**：比较现有答案与新草稿主旨/结构差异。
 8. **Gap Highlight & Feedback**：指出缺失内容、语法词汇问题。
 9. **AnswerComposer / Refined Answer Generator**：调用链需先生成满足风格/难度/篇章要求的法语文本（T2 需输出自然的双人对话，结合全局 `user_profile` 与 `dialogue_profile` 生成合理人设、提问/追问/评论链路），再单独触发结构化流程；每个阶段由独立任务承载，便于并行与重试；对于 i+1 版本，同样遵循“先作文，后拆解”的顺序。

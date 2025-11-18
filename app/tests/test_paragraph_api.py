@@ -7,7 +7,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.main import app
 from app.api.dependencies import get_session, get_llm_client
-from app.db.schemas import Answer, AnswerGroup, Question, Paragraph, Sentence
+from app.db.schemas import Answer, AnswerGroup, Question, Paragraph, Sentence, LLMConversation
 from app.services.llm_service import LLMError
 
 
@@ -197,3 +197,16 @@ def test_sentence_split_task(client: TestClient, session: Session) -> None:
     lexeme = session.exec(select(Lexeme).where(Lexeme.id == links[0].lexeme_id)).first()
     assert lexeme.lemma == "bonjour"
     assert lexeme.translation_zh == "你好"
+
+
+def test_split_task_records_llm_conversation(client: TestClient, session: Session) -> None:
+    answer_id = _create_answer(session)
+    sentence = session.exec(select(Sentence)).first()
+    resp = client.post(f"/sentences/{sentence.id}/tasks/split-phrases")
+    assert resp.status_code == 201
+    conversation = session.exec(select(LLMConversation).order_by(LLMConversation.created_at.desc())).first()
+    assert conversation is not None
+    assert conversation.purpose == "split_phrase"
+    assert conversation.result.get("phrases")
+    messages = conversation.messages
+    assert "split_prompt" in messages
