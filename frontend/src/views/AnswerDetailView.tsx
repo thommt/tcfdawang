@@ -4,7 +4,7 @@ import { fetchAnswerById, fetchAnswerHistory } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
 import { fetchParagraphsByAnswer, runStructureTask, runSentenceTranslationTask } from '../api/paragraphs';
-import { splitSentence } from '../api/sentences';
+import { generateSentenceChunks, generateChunkLexemes } from '../api/sentences';
 import type { Answer, AnswerGroup, Paragraph, AnswerHistory } from '../types/answer';
 import type { Question, FetchTask } from '../types/question';
 import { useSessionStore } from '../stores/sessions';
@@ -133,16 +133,17 @@ export default defineComponent({
       }
     }
 
-    async function splitSentenceLexemes(sentenceId: number) {
+    async function generateChunksAndLexemes(sentenceId: number) {
       if (splittingSentenceId.value) return;
       splittingSentenceId.value = sentenceId;
       splitError.value = '';
       splitMessage.value = '';
       try {
-        await splitSentence(sentenceId);
-        splitMessage.value = '拆分完成';
+        await generateSentenceChunks(sentenceId);
+        await generateChunkLexemes(sentenceId);
+        splitMessage.value = 'Chunk 与关键词已生成';
       } catch (err) {
-        splitError.value = '触发句子拆分失败';
+        splitError.value = '生成 Chunk 或关键词失败';
         console.error(err);
       } finally {
         splittingSentenceId.value = null;
@@ -266,14 +267,14 @@ export default defineComponent({
                       <div class="sentence-actions">
                         <button
                           type="button"
-                          onClick={() => splitSentenceLexemes(sentence.id)}
+                          onClick={() => generateChunksAndLexemes(sentence.id)}
                           disabled={splittingSentenceId.value === sentence.id}
                         >
                           {splittingSentenceId.value === sentence.id
-                            ? '拆分中...'
+                            ? '处理中...'
                             : sentence.chunks && sentence.chunks.length > 0
-                            ? '重新生成 Chunk'
-                            : '生成 Chunk'}
+                            ? '重新生成 Chunk 与关键词'
+                            : '生成 Chunk 与关键词'}
                         </button>
                       </div>
                       {sentence.chunks && sentence.chunks.length > 0 ? (

@@ -7,6 +7,8 @@ from .schemas import (
     SentenceTranslationResultSchema,
     PhraseSplitResultSchema,
     PhraseSplitQualitySchema,
+    SentenceChunkResultSchema,
+    ChunkLexemeResultSchema,
 )
 from .chains import (
     build_metadata_chain,
@@ -16,6 +18,8 @@ from .chains import (
     build_sentence_translation_chain,
     build_phrase_split_chain,
     build_phrase_split_quality_chain,
+    build_chunk_split_chain,
+    build_chunk_lexeme_chain,
 )
 
 __all__ = [
@@ -27,6 +31,8 @@ __all__ = [
     "SentenceTranslationResultSchema",
     "PhraseSplitResultSchema",
     "PhraseSplitQualitySchema",
+    "SentenceChunkResultSchema",
+    "ChunkLexemeResultSchema",
     "build_metadata_chain",
     "build_evaluation_chain",
     "build_compose_chain",
@@ -34,4 +40,6 @@ __all__ = [
     "build_sentence_translation_chain",
     "build_phrase_split_chain",
     "build_phrase_split_quality_chain",
+    "build_chunk_split_chain",
+    "build_chunk_lexeme_chain",
 ]

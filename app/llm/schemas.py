@@ -72,3 +72,31 @@ class PhraseSplitResultSchema(BaseModel):
 class PhraseSplitQualitySchema(BaseModel):
     is_valid: bool = Field(..., description="是否通过质检")
     issues: List[str] = Field(default_factory=list, description="发现的问题列表")
+
+
+class SentenceChunkItemSchema(BaseModel):
+    chunk_index: int = Field(..., description="Chunk 的顺序，从 1 开始")
+    text: str = Field(..., description="Chunk 原文")
+    translation_en: Optional[str] = Field(default=None)
+    translation_zh: Optional[str] = Field(default=None)
+    chunk_type: Optional[str] = Field(default=None)
+
+
+class SentenceChunkResultSchema(BaseModel):
+    chunks: List[SentenceChunkItemSchema] = Field(default_factory=list)
+
+
+class ChunkLexemeItemSchema(BaseModel):
+    chunk_index: int = Field(..., description="对应的 chunk 顺序")
+    headword: str = Field(..., description="关键词的词典形")
+    sense_label: Optional[str] = None
+    gloss: Optional[str] = None
+    translation_en: Optional[str] = None
+    translation_zh: Optional[str] = None
+    pos_tags: Optional[str] = None
+    difficulty: Optional[str] = None
+    role: Optional[str] = None
+
+
+class ChunkLexemeResultSchema(BaseModel):
+    lexemes: List[ChunkLexemeItemSchema] = Field(default_factory=list)

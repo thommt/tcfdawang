@@ -12,6 +12,16 @@ def get_task_service(db=Depends(get_session), llm_client=Depends(get_llm_client)
 router = APIRouter(prefix="/sentences", tags=["sentences"])
 
 
+@router.post("/{sentence_id}/tasks/chunks", response_model=TaskRead, status_code=201)
+def run_chunk_task(sentence_id: int, service: TaskService = Depends(get_task_service)) -> TaskRead:
+    return service.run_chunk_task(sentence_id)
+
+
+@router.post("/{sentence_id}/tasks/chunk-lexemes", response_model=TaskRead, status_code=201)
+def run_chunk_lexeme_task(sentence_id: int, service: TaskService = Depends(get_task_service)) -> TaskRead:
+    return service.run_chunk_lexeme_task(sentence_id)
+
+
 @router.post("/{sentence_id}/tasks/split-phrases", response_model=TaskRead, status_code=201)
 def run_split_phrase_task(sentence_id: int, service: TaskService = Depends(get_task_service)) -> TaskRead:
     return service.run_sentence_split_task(sentence_id)

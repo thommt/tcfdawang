@@ -60,17 +60,29 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
                 ]
             }
 
-        def split_sentence(self, **kwargs):
+        def chunk_sentence(self, **kwargs):
             return {
-                "phrases": [
+                "chunks": [
                     {
-                        "phrase": "Bonjour",
-                        "lemma": "bonjour",
+                        "chunk_index": 1,
+                        "text": "Bonjour",
+                        "translation_en": "Hello",
+                        "translation_zh": "你好",
+                    }
+                ]
+            }
+
+        def build_chunk_lexemes(self, **kwargs):
+            return {
+                "lexemes": [
+                    {
+                        "chunk_index": 1,
+                        "headword": "bonjour",
                         "sense_label": "问候",
                         "gloss": "to greet someone",
                         "translation_zh": "你好",
                         "translation_en": "hello",
-                        "pos_tags": "interj",
+                        "pos_tags": "noun",
                         "difficulty": "A2",
                     }
                 ]
@@ -186,10 +198,10 @@ def test_sentence_translation_task(client: TestClient, session: Session) -> None
 def test_sentence_split_task(client: TestClient, session: Session) -> None:
     answer_id = _create_answer(session)
     sentence = session.exec(select(Sentence)).first()
-    response = client.post(f"/sentences/{sentence.id}/tasks/split-phrases")
+    response = client.post(f"/sentences/{sentence.id}/tasks/chunks")
     assert response.status_code == 201
-    payload = response.json()
-    assert payload["status"] == "succeeded"
+    response = client.post(f"/sentences/{sentence.id}/tasks/chunk-lexemes")
+    assert response.status_code == 201
     from app.db.schemas import SentenceChunk, ChunkLexeme, Lexeme  # local import to avoid circular
 
     chunks = session.exec(select(SentenceChunk).where(SentenceChunk.sentence_id == sentence.id)).all()
@@ -204,11 +216,13 @@ def test_sentence_split_task(client: TestClient, session: Session) -> None:
 def test_split_task_records_llm_conversation(client: TestClient, session: Session) -> None:
     answer_id = _create_answer(session)
     sentence = session.exec(select(Sentence)).first()
-    resp = client.post(f"/sentences/{sentence.id}/tasks/split-phrases")
+    resp = client.post(f"/sentences/{sentence.id}/tasks/chunks")
+    assert resp.status_code == 201
+    resp = client.post(f"/sentences/{sentence.id}/tasks/chunk-lexemes")
     assert resp.status_code == 201
     conversation = session.exec(select(LLMConversation).order_by(LLMConversation.created_at.desc())).first()
     assert conversation is not None
-    assert conversation.purpose == "split_phrase"
-    assert conversation.result.get("phrases")
+    assert conversation.purpose == "chunk_lexeme"
+    assert conversation.result.get("lexemes")
     messages = conversation.messages
-    assert "split_prompt" in messages
+    assert "lexeme_prompt" in messages

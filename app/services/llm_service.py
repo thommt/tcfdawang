@@ -13,6 +13,8 @@ from app.llm import (
     build_sentence_translation_chain,
     build_phrase_split_chain,
     build_phrase_split_quality_chain,
+    build_chunk_split_chain,
+    build_chunk_lexeme_chain,
 )
 
 
@@ -55,6 +57,16 @@ class QuestionLLMClient:
             self._phrase_quality_parser,
             self._phrase_quality_prompt,
         ) = build_phrase_split_quality_chain(self._llm)
+        (
+            self._chunk_split_chain,
+            self._chunk_split_parser,
+            self._chunk_split_prompt,
+        ) = build_chunk_split_chain(self._llm)
+        (
+            self._chunk_lexeme_chain,
+            self._chunk_lexeme_parser,
+            self._chunk_lexeme_prompt,
+        ) = build_chunk_lexeme_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -113,6 +125,80 @@ class QuestionLLMClient:
                     "format_instructions": self._eval_parser.get_format_instructions(),
                 }
             )
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
+    def chunk_sentence(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        sentence_text: str,
+        known_issues: list[str] | None = None,
+    ) -> dict:
+        if not sentence_text:
+            raise LLMError("暂无可拆分的句子")
+        issues_block = (
+            "上次拆分存在以下问题：\n" + "\n".join(f"- {issue}" for issue in known_issues)
+            if known_issues
+            else "无"
+        )
+        try:
+            prompt_messages = self._chunk_split_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                sentence_text=sentence_text,
+                known_issues=issues_block,
+                format_instructions=self._chunk_split_parser.get_format_instructions(),
+            )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._chunk_split_parser.parse(response_text)
+            result = parsed.model_dump() if hasattr(parsed, "model_dump") else dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
+    def build_chunk_lexemes(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        sentence_text: str,
+        chunks: list[dict],
+    ) -> dict:
+        chunks_block = "\n".join(
+            f"{item.get('chunk_index', idx+1)}. {item.get('text')} "
+            f"(EN: {item.get('translation_en') or '—'} / ZH: {item.get('translation_zh') or '—'})"
+            for idx, item in enumerate(chunks)
+        )
+        try:
+            prompt_messages = self._chunk_lexeme_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                sentence_text=sentence_text,
+                chunks_block=chunks_block,
+                format_instructions=self._chunk_lexeme_parser.get_format_instructions(),
+            )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._chunk_lexeme_parser.parse(response_text)
+            result = parsed.model_dump() if hasattr(parsed, "model_dump") else dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
         except Exception as exc:  # pragma: no cover
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
         return result

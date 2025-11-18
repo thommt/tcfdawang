@@ -99,3 +99,36 @@ PHRASE_SPLIT_QUALITY_HUMAN_PROMPT = (
     "原句: {sentence_text}\n"
     "拆分词块:\n{phrases_block}"
 )
+
+CHUNK_SPLIT_SYSTEM_PROMPT = (
+    "你是TCF Canada 句子拆分助手。请将句子拆成3-6个方便背诵的记忆块，每个块包含完整语法成分并覆盖整句。"
+    "每个块应返回原文与英文/中文解释，可根据语义类型给出 chunk_type(如 intro/body/conclusion)。{format_instructions}"
+)
+
+CHUNK_SPLIT_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容摘要: {question_body}\n"
+    "目标句子: {sentence_text}\n"
+    "拆分示例:\n"
+    "原句：Il est essentiel que les entreprises aident leurs nouveaux collaborateurs à s’adapter et à s’intégrer pour plusieurs raisons.\n"
+    "记忆块：\n"
+    "1. Il est essentiel que\n"
+    "2. les entreprises aident leurs nouveaux collaborateurs\n"
+    "3. à s’adapter et à s’intégrer\n"
+    "4. pour plusieurs raisons\n"
+    "上次拆分反馈: {known_issues}"
+)
+
+CHUNK_LEXEME_SYSTEM_PROMPT = (
+    "你是TCF Canada 关键词提取助手。给定记忆块列表，请为每个 chunk 找出1-2个值得背诵的关键词/词组，"
+    "输出 headword、sense_label、gloss、翻译、pos_tags、难度等级(A1~C2)。\n"
+    "请尽量复用 chunk 中的词语，避免重复或过于简单的词。{format_instructions}"
+)
+
+CHUNK_LEXEME_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "目标句子: {sentence_text}\n"
+    "记忆块：\n{chunks_block}"
+)

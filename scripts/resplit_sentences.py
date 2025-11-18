@@ -73,7 +73,8 @@ def main() -> None:
                 continue
             print(f"Re-splitting sentence #{sentence_id} ...", end="", flush=True)
             try:
-                service.run_sentence_split_task(sentence_id)
+                service.run_chunk_task(sentence_id)
+                service.run_chunk_lexeme_task(sentence_id)
                 print(" done.")
             except Exception as exc:  # pragma: no cover - manual script, log error and continue
                 print(f" failed: {exc}")

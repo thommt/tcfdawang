@@ -179,6 +179,33 @@ class TaskService:
                 continue
             self.session.delete(lexeme)
 
+    def _remove_sentence_chunks(self, sentence_id: int) -> None:
+        chunks = self.session.exec(
+            select(SentenceChunk).where(SentenceChunk.sentence_id == sentence_id)
+        ).all()
+        if not chunks:
+            return
+        chunk_ids = [chunk.id for chunk in chunks if chunk.id is not None]
+        orphan_candidates = self._clear_chunk_lexemes(chunk_ids)
+        for chunk in chunks:
+            self.session.delete(chunk)
+        self.session.commit()
+        self._cleanup_orphan_lexemes(orphan_candidates)
+
+    def _clear_chunk_lexemes(self, chunk_ids: list[int]) -> Set[int]:
+        orphan_candidates: Set[int] = set()
+        if not chunk_ids:
+            return orphan_candidates
+        links = self.session.exec(
+            select(ChunkLexeme).where(ChunkLexeme.chunk_id.in_(chunk_ids))
+        ).all()
+        for link in links:
+            if link.lexeme_id:
+                orphan_candidates.add(link.lexeme_id)
+            self.session.delete(link)
+        self.session.commit()
+        return orphan_candidates
+
     def _get_task(self, task_id: int) -> Task:
         task = self.session.get(Task, task_id)
         if not task:
@@ -360,7 +387,7 @@ class TaskService:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
-    def run_sentence_split_task(self, sentence_id: int) -> TaskRead:
+    def run_chunk_task(self, sentence_id: int) -> TaskRead:
         sentence = self.session.get(Sentence, sentence_id)
         if not sentence:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sentence not found")
@@ -375,7 +402,7 @@ class TaskService:
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
         task = Task(
-            type="split_phrase",
+            type="chunk_sentence",
             status="pending",
             payload={"sentence_id": sentence_id},
             session_id=None,
@@ -386,114 +413,138 @@ class TaskService:
         self.session.refresh(task)
         sentence_extra = dict(sentence.extra or {})
         known_issues: list[str] = sentence_extra.get("split_issues") or []
-        existing_chunks = self.session.exec(
-            select(SentenceChunk).where(SentenceChunk.sentence_id == sentence_id)
-        ).all()
-        chunk_ids = [chunk.id for chunk in existing_chunks if chunk.id is not None]
-        orphan_candidates: Set[int] = set()
-        if chunk_ids:
-            chunk_links = self.session.exec(
-                select(ChunkLexeme).where(ChunkLexeme.chunk_id.in_(chunk_ids))
-            ).all()
-            for link in chunk_links:
-                if link.lexeme_id:
-                    orphan_candidates.add(link.lexeme_id)
-                self.session.delete(link)
-        for chunk in existing_chunks:
-            self.session.delete(chunk)
-        self.session.commit()
-        self._cleanup_orphan_lexemes(orphan_candidates)
+        self._remove_sentence_chunks(sentence_id)
         try:
-            split_result = self.llm_client.split_sentence(
+            chunk_result = self.llm_client.chunk_sentence(
                 question_type=question.type,
                 question_title=question.title,
                 question_body=question.body,
                 sentence_text=sentence.text,
                 known_issues=known_issues,
             )
-            split_prompt_messages = split_result.pop("_prompt_messages", [])
-            phrases = split_result.get("phrases") or []
-            quality_prompt_messages: list[dict] = []
-            quality = None
-            if phrases:
-                quality = self.llm_client.assess_phrase_split_quality(
-                    question_type=question.type,
-                    question_title=question.title,
-                    question_body=question.body,
-                    sentence_text=sentence.text,
-                    phrases=phrases,
+            split_prompt_messages = chunk_result.pop("_prompt_messages", [])
+            chunks = chunk_result.get("chunks") or []
+            if not chunks:
+                raise LLMError("LLM 未返回任何 Chunk")
+            for item in chunks:
+                chunk = SentenceChunk(
+                    sentence_id=sentence_id,
+                    order_index=item.get("chunk_index") or len(chunks),
+                    text=item.get("text") or "",
+                    translation_en=item.get("translation_en"),
+                    translation_zh=item.get("translation_zh"),
+                    chunk_type=item.get("chunk_type"),
+                    extra={},
                 )
-                quality_prompt_messages = quality.pop("_prompt_messages", [])
-                if quality and not quality.get("is_valid", True):
-                    issues = quality.get("issues") or []
-                    detail = "拆分质量不足"
-                    if issues:
-                        detail = f"拆分质量不足：{'；'.join(issues)}"
-                        sentence_extra["split_issues"] = issues
-                        sentence.extra = sentence_extra
-                        self.session.add(sentence)
-                        self.session.commit()
-                    conversation = LLMConversation(
-                        session_id=None,
-                        task_id=task.id,
-                        purpose="split_phrase",
-                        messages={
-                            "split_prompt": split_prompt_messages,
-                            "quality_prompt": quality_prompt_messages,
-                            "input_sentence": sentence.text,
-                            "known_issues": known_issues,
-                        },
-                        result={
-                            "phrases": split_result.get("phrases"),
-                            "quality_check": quality,
-                            "error": detail,
-                        },
-                        model_name=getattr(self.llm_client, "model", None),
-                        latency_ms=None,
-                    )
-                    self.session.add(conversation)
-                    self.session.commit()
-                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+                self.session.add(chunk)
             sentence_extra.pop("split_issues", None)
             sentence.extra = sentence_extra
             self.session.add(sentence)
             self.session.commit()
+            conversation = LLMConversation(
+                session_id=None,
+                task_id=task.id,
+                purpose="chunk_sentence",
+                messages={
+                    "split_prompt": split_prompt_messages,
+                    "input_sentence": sentence.text,
+                    "known_issues": known_issues,
+                },
+                result=chunk_result,
+                model_name=getattr(self.llm_client, "model", None),
+                latency_ms=None,
+            )
+            self.session.add(conversation)
+            task.status = "succeeded"
+            task.result_summary = {"chunks": len(chunks)}
+            task.updated_at = datetime.now(timezone.utc)
+            task.error_message = None
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except LLMError as exc:
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return TaskRead.model_validate(task)
+
+    def run_chunk_lexeme_task(self, sentence_id: int) -> TaskRead:
+        sentence = self.session.get(Sentence, sentence_id)
+        if not sentence:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sentence not found")
+        paragraph = self.session.get(Paragraph, sentence.paragraph_id)
+        if not paragraph:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paragraph not found")
+        answer = self.session.get(AnswerSchema, paragraph.answer_id)
+        if not answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        group = self.session.get(AnswerGroupSchema, answer.answer_group_id)
+        question = self.session.get(Question, group.question_id) if group else None
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        chunks = self.session.exec(
+            select(SentenceChunk).where(SentenceChunk.sentence_id == sentence_id).order_by(SentenceChunk.order_index)
+        ).all()
+        if not chunks:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先生成 Chunk")
+        task = Task(
+            type="chunk_lexeme",
+            status="pending",
+            payload={"sentence_id": sentence_id},
+            session_id=None,
+            answer_id=answer.id,
+        )
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        chunk_ids = [chunk.id for chunk in chunks if chunk.id is not None]
+        orphan_candidates = self._clear_chunk_lexemes(chunk_ids)
+        try:
+            chunk_dicts = [
+                {
+                    "chunk_index": chunk.order_index,
+                    "text": chunk.text,
+                    "translation_en": chunk.translation_en,
+                    "translation_zh": chunk.translation_zh,
+                }
+                for chunk in chunks
+            ]
+            lexeme_result = self.llm_client.build_chunk_lexemes(
+                question_type=question.type,
+                question_title=question.title,
+                sentence_text=sentence.text,
+                chunks=chunk_dicts,
+            )
+            prompt_messages = lexeme_result.pop("_prompt_messages", [])
+            lexeme_items = lexeme_result.get("lexemes") or []
+            chunk_index_map = {chunk.order_index: chunk for chunk in chunks}
+            per_chunk_counter: dict[int, int] = {chunk.order_index: 0 for chunk in chunks}
             created = 0
             lexeme_ids_for_cards: Set[int] = set()
-            chunk_records: list[tuple[SentenceChunk, dict]] = []
-            for idx, phrase in enumerate(phrases, start=1):
-                chunk = SentenceChunk(
-                    sentence_id=sentence_id,
-                    order_index=idx,
-                    text=(phrase.get("phrase") or "").strip(),
-                    translation_en=phrase.get("translation_en"),
-                    translation_zh=phrase.get("translation_zh"),
-                    chunk_type=phrase.get("chunk_type"),
-                    extra={},
-                )
-                self.session.add(chunk)
-                self.session.commit()
-                self.session.refresh(chunk)
-                chunk_records.append((chunk, phrase))
-            for chunk, phrase in chunk_records:
-                headword = (phrase.get("lemma") or chunk.text or "").strip()
+            for item in lexeme_items:
+                chunk_index = item.get("chunk_index")
+                chunk_entity = chunk_index_map.get(chunk_index)
+                if not chunk_entity:
+                    continue
+                headword = (item.get("headword") or "").strip()
                 if not headword:
                     continue
-                sense_label = (phrase.get("sense_label") or "").strip()
-                hash_value = self._build_lexeme_hash(headword, sense_label, chunk.text or "")
+                sense_label = (item.get("sense_label") or "").strip()
+                hash_value = self._build_lexeme_hash(headword, sense_label, chunk_entity.text or "")
                 lexeme = self.session.exec(select(Lexeme).where(Lexeme.hash == hash_value)).first()
                 if not lexeme:
-                    normalized_pos = self._normalize_pos_tag(phrase.get("pos_tags"))
-                    normalized_difficulty = self._normalize_difficulty(phrase.get("difficulty"))
                     lexeme = Lexeme(
                         headword=headword,
                         lemma=headword,
                         sense_label=sense_label or None,
-                        gloss=phrase.get("gloss"),
-                        translation_en=phrase.get("translation_en"),
-                        translation_zh=phrase.get("translation_zh"),
-                        pos_tags=normalized_pos,
-                        difficulty=normalized_difficulty,
+                        gloss=item.get("gloss"),
+                        translation_en=item.get("translation_en"),
+                        translation_zh=item.get("translation_zh"),
+                        pos_tags=self._normalize_pos_tag(item.get("pos_tags")),
+                        difficulty=self._normalize_difficulty(item.get("difficulty")),
                         hash=hash_value,
                         extra={},
                     )
@@ -501,32 +552,29 @@ class TaskService:
                     self.session.commit()
                     self.session.refresh(lexeme)
                 lexeme_ids_for_cards.add(lexeme.id)
+                per_chunk_counter[chunk_index] = per_chunk_counter.get(chunk_index, 0) + 1
                 chunk_lexeme = ChunkLexeme(
-                    chunk_id=chunk.id,
+                    chunk_id=chunk_entity.id,
                     lexeme_id=lexeme.id,
-                    order_index=1,
-                    role=phrase.get("role"),
+                    order_index=per_chunk_counter[chunk_index],
+                    role=item.get("role"),
                     extra={},
                 )
                 self.session.add(chunk_lexeme)
                 created += 1
             self.session.commit()
+            self._cleanup_orphan_lexemes(orphan_candidates)
             for lexeme_id in lexeme_ids_for_cards:
                 self._ensure_lexeme_flashcard(lexeme_id)
-            conversation_result = dict(split_result)
-            if quality is not None:
-                conversation_result["quality_check"] = quality
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,
-                purpose="split_phrase",
+                purpose="chunk_lexeme",
                 messages={
-                    "split_prompt": split_prompt_messages,
-                    "quality_prompt": quality_prompt_messages,
+                    "lexeme_prompt": prompt_messages,
                     "input_sentence": sentence.text,
-                    "known_issues": known_issues,
                 },
-                result=conversation_result,
+                result=lexeme_result,
                 model_name=getattr(self.llm_client, "model", None),
                 latency_ms=None,
             )
@@ -546,6 +594,10 @@ class TaskService:
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
+
+    def run_sentence_split_task(self, sentence_id: int) -> TaskRead:
+        self.run_chunk_task(sentence_id)
+        return self.run_chunk_lexeme_task(sentence_id)
 
     def _build_lexeme_hash(self, lemma: str, sense_label: str, phrase_text: str) -> str:
         normalized_lemma = " ".join(lemma.strip().lower().split())
