@@ -100,6 +100,21 @@ describe('Session Store', () => {
     reviewSpy.mockRestore();
   });
 
+  it('saves review notes', async () => {
+    const updateSpy = vi.spyOn(api, 'updateSession').mockResolvedValue({
+      ...mockSession,
+      progress_state: { review_notes: 'more details' },
+    });
+    const store = useSessionStore();
+    store.sessions = [mockSession];
+    store.currentSession = mockSession;
+    await store.saveReviewNotes(1, 'more details');
+    expect(updateSpy).toHaveBeenCalledWith(1, {
+      progress_state: { ...mockSession.progress_state, review_notes: 'more details' },
+    });
+    updateSpy.mockRestore();
+  });
+
   it('composes answer via LLM task', async () => {
     vi.spyOn(api, 'fetchSessionById').mockResolvedValue({
       ...mockSession,

@@ -23,6 +23,9 @@ export default defineComponent({
     const reviewSourceAnswer = ref<Answer | null>(null);
     const reviewSourceLoading = ref(false);
     const reviewSourceError = ref('');
+    const reviewNotes = ref('');
+    const savingReviewNotes = ref(false);
+    const reviewNoteMessage = ref('');
 
     const showFinalize = ref(false);
     const answerTitle = ref('');
@@ -41,6 +44,33 @@ export default defineComponent({
     );
     const conversations = computed(() => sessionHistory.value?.conversations ?? []);
     const isReviewSession = computed(() => session.value?.session_type === 'review');
+    const reviewSourceId = computed(() => {
+      const current = session.value;
+      if (!current) return null;
+      const fromState = (current.progress_state?.review_source_answer_id as number | undefined) ?? null;
+      return fromState || current.answer_id || null;
+    });
+    const reviewComparison = computed(() => {
+      if (!reviewSourceAnswer.value) return null;
+      const baseText = reviewSourceAnswer.value.text || '';
+      const currentText = draft.value || '';
+      const countWords = (text: string) => {
+        const trimmed = text.trim();
+        return trimmed ? trimmed.split(/\s+/).length : 0;
+      };
+      const sourceWords = countWords(baseText);
+      const currentWords = countWords(currentText);
+      const sourceChars = baseText.length;
+      const currentChars = currentText.length;
+      return {
+        sourceWords,
+        currentWords,
+        diffWords: currentWords - sourceWords,
+        sourceChars,
+        currentChars,
+        diffChars: currentChars - sourceChars,
+      };
+    });
     const lastEval = computed(() => {
       const evalData = session.value?.progress_state?.last_eval as Record<string, unknown> | undefined;
       if (!evalData) return null;
@@ -71,6 +101,7 @@ export default defineComponent({
       await sessionStore.loadSession(sessionId);
       const current = sessionStore.currentSession;
       draft.value = current?.user_answer_draft ?? '';
+      reviewNotes.value = (current?.progress_state?.review_notes as string | undefined) ?? '';
       if (current) {
         const existing = questionStore.items.find((item) => item.id === current.question_id);
         if (existing) {
@@ -88,6 +119,8 @@ export default defineComponent({
       (value) => {
         if (value) {
           draft.value = value.user_answer_draft ?? '';
+          reviewNotes.value = (value.progress_state?.review_notes as string | undefined) ?? '';
+          reviewNoteMessage.value = '';
           loadReviewSource(reviewSourceId.value);
         }
       }
@@ -105,6 +138,21 @@ export default defineComponent({
         await sessionStore.saveDraft(session.value.id, draft.value);
       } finally {
         saving.value = false;
+      }
+    }
+
+    async function saveReviewNote() {
+      if (!session.value) return;
+      savingReviewNotes.value = true;
+      reviewNoteMessage.value = '';
+      try {
+        await sessionStore.saveReviewNotes(session.value.id, reviewNotes.value);
+        reviewNoteMessage.value = '已保存改进要点';
+      } catch (err) {
+        reviewNoteMessage.value = '保存失败，请重试';
+        console.error(err);
+      } finally {
+        savingReviewNotes.value = false;
       }
     }
 
@@ -159,126 +207,6 @@ export default defineComponent({
       loadData();
     });
 
-    return () => (
-      <section class="session-workspace">
-        <RouterLink class="link" to={`/questions/${question.value?.id ?? ''}`}>
-          ← 返回题目详情
-        </RouterLink>
-        {question.value && (
-          <header class="question-meta">
-            <h2>{question.value.title}</h2>
-            <p>
-              {question.value.year}/{question.value.month} · {question.value.type}
-            </p>
-          </header>
-        )}
-        {isReviewSession.value && (
-          <section class="review-context">
-            <h3>复习模式</h3>
-            <p>此 Session 基于已有答案生成，请在原答案基础上优化、扩展并记录新的思路。</p>
-            {reviewSourceLoading.value && <p>源答案加载中...</p>}
-            {reviewSourceError.value && <p class="error">{reviewSourceError.value}</p>}
-            {reviewSourceAnswer.value && (
-              <article class="source-answer-card">
-                <header>
-                  <strong>原答案：{reviewSourceAnswer.value.title}</strong>
-                  <RouterLink to={`/answers/${reviewSourceAnswer.value.id}`} class="link">
-                    查看详情
-                  </RouterLink>
-                </header>
-                <p>
-                  版本：V{reviewSourceAnswer.value.version_index} · 创建时间：
-                  {new Date(reviewSourceAnswer.value.created_at).toLocaleString()}
-                </p>
-                {reviewComparison.value && (
-                  <ul class="comparison-stats">
-                    <li>
-                      词数：{reviewComparison.value.currentWords}（当前） / {reviewComparison.value.sourceWords}（原文） ·
-                      差值 {reviewComparison.value.diffWords >= 0 ? '+' : ''}
-                      {reviewComparison.value.diffWords}
-                    </li>
-                    <li>
-                      字符：{reviewComparison.value.currentChars}（当前） / {reviewComparison.value.sourceChars}（原文） ·
-                      差值 {reviewComparison.value.diffChars >= 0 ? '+' : ''}
-                      {reviewComparison.value.diffChars}
-                    </li>
-                  </ul>
-                )}
-                <details>
-                  <summary>展开原文</summary>
-                  <pre>{reviewSourceAnswer.value.text}</pre>
-                </details>
-              </article>
-            )}
-          </section>
-        )}
-
-        <section class="workspace">
-          <label>
-            <span>草稿</span>
-            <textarea
-              rows={8}
-              value={draft.value}
-              onInput={(event) => {
-                draft.value = (event.target as HTMLTextAreaElement).value;
-              }}
-              placeholder="在此输入你的答案草稿"
-            ></textarea>
-          </label>
-          <div class="actions">
-            <button onClick={saveDraft} disabled={saving.value || sessionCompleted.value}>
-              {saving.value ? '保存中...' : '保存草稿'}
-            </button>
-            <button onClick={evaluate} disabled={evalRunning.value || sessionCompleted.value}>
-              {evalRunning.value ? '评估中...' : '请求评估'}
-            </button>
-            <button onClick={composeAnswer} disabled={composing.value || sessionCompleted.value}>
-              {composing.value ? '生成中...' : 'LLM 生成答案'}
-            </button>
-            <button type="button" onClick={openFinalize} disabled={sessionCompleted.value}>
-              {sessionCompleted.value ? '已完成' : '完成 Session'}
-            </button>
-          </div>
-        </section>
-
-        <section class="eval-panel">
-          <h3>最近评估</h3>
-          {lastEval.value ? (
-            <div class="feedback-card">
-              <p>{lastEval.value.feedback}</p>
-              <p>评分：{lastEval.value.score ?? '未提供'}</p>
-            </div>
-          ) : (
-            <p>尚未进行评估。</p>
-          )}
-        </section>
-        {lastCompose.value && (
-          <section class="compose-panel">
-            <h3>LLM 生成的答案</h3>
-            <article>
-              <strong>{(lastCompose.value as Record<string, unknown>).title as string}</strong>
-              <p>{(lastCompose.value as Record<string, unknown>).text as string}</p>
-            </article>
-          </section>
-        )}
-        <section class="history-panel">
-          <h3>评估历史</h3>
-          {historyLoading.value && <p>加载中...</p>}
-          {!historyLoading.value && evalHistory.value.length === 0 && <p>暂无评估记录。</p>}
-          {!historyLoading.value && evalHistory.value.length > 0 && (
-            <ul class="history-list">
-              {evalHistory.value.map((task) => {
-                const summary = task.result_summary as Record<string, unknown>;
-                return (
-                  <li key={task.id}>
-                    <header>
-                      #{task.id} · {new Date(task.updated_at).toLocaleString()} · {task.status}
-                    </header>
-                    <p>{(summary.feedback as string) ?? '无反馈'}</p>
-                    <small>分数：{summary.score ?? '—'}</small>
-                  </li>
-                );
-              })}
             </ul>
           )}
         </section>
@@ -359,31 +287,3 @@ export default defineComponent({
     );
   },
 });
-    const reviewSourceId = computed(() => {
-      const current = session.value;
-      if (!current) return null;
-      const fromState = (current.progress_state?.review_source_answer_id as number | undefined) ?? null;
-      return fromState || current.answer_id || null;
-    });
-
-    const reviewComparison = computed(() => {
-      if (!reviewSourceAnswer.value) return null;
-      const baseText = reviewSourceAnswer.value.text || '';
-      const currentText = draft.value || '';
-      const countWords = (text: string) => {
-        const trimmed = text.trim();
-        return trimmed ? trimmed.split(/\s+/).length : 0;
-      };
-      const sourceWords = countWords(baseText);
-      const currentWords = countWords(currentText);
-      const sourceChars = baseText.length;
-      const currentChars = currentText.length;
-      return {
-        sourceWords,
-        currentWords,
-        diffWords: currentWords - sourceWords,
-        sourceChars,
-        currentChars,
-        diffChars: currentChars - sourceChars,
-      };
-    });
