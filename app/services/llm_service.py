@@ -41,8 +41,8 @@ class QuestionLLMClient:
             timeout=self.timeout,
         )
         self._metadata_chain, self._metadata_parser = build_metadata_chain(self._llm)
-        self._eval_chain, self._eval_parser = build_evaluation_chain(self._llm)
-        self._compose_chain, self._compose_parser = build_compose_chain(self._llm)
+        self._eval_chain, self._eval_parser, self._eval_prompt = build_evaluation_chain(self._llm)
+        self._compose_chain, self._compose_parser, self._compose_prompt = build_compose_chain(self._llm)
         self._structure_chain, self._structure_parser = build_structure_chain(self._llm)
         self._sentence_translation_chain, self._sentence_translation_parser = build_sentence_translation_chain(
             self._llm
@@ -116,15 +116,26 @@ class QuestionLLMClient:
         if not answer_draft:
             raise LLMError("暂无可评估的草稿")
         try:
-            result = self._eval_chain.invoke(
-                {
-                    "question_type": question_type,
-                    "question_title": question_title,
-                    "question_body": question_body,
-                    "answer_draft": answer_draft,
-                    "format_instructions": self._eval_parser.get_format_instructions(),
-                }
+            prompt_messages = self._eval_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                answer_draft=answer_draft,
+                format_instructions=self._eval_parser.get_format_instructions(),
             )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._eval_parser.parse(response_text)
+            if hasattr(parsed, "model_dump"):
+                result = parsed.model_dump()
+            else:
+                result = dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
         except Exception as exc:  # pragma: no cover
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
         return result
@@ -212,15 +223,26 @@ class QuestionLLMClient:
         answer_draft: str,
     ) -> dict:
         try:
-            result = self._compose_chain.invoke(
-                {
-                    "question_type": question_type,
-                    "question_title": question_title,
-                    "question_body": question_body,
-                    "answer_draft": answer_draft,
-                    "format_instructions": self._compose_parser.get_format_instructions(),
-                }
+            prompt_messages = self._compose_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                answer_draft=answer_draft,
+                format_instructions=self._compose_parser.get_format_instructions(),
             )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._compose_parser.parse(response_text)
+            if hasattr(parsed, "model_dump"):
+                result = parsed.model_dump()
+            else:
+                result = dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
         except Exception as exc:  # pragma: no cover
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
         return result

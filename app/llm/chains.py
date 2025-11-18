@@ -58,7 +58,7 @@ def build_evaluation_chain(llm: BaseChatModel):
         ]
     )
     chain = prompt | llm | parser
-    return chain, parser
+    return chain, parser, prompt
 
 
 def build_compose_chain(llm: BaseChatModel):
@@ -70,7 +70,7 @@ def build_compose_chain(llm: BaseChatModel):
         ]
     )
     chain = prompt | llm | parser
-    return chain, parser
+    return chain, parser, prompt
 
 
 def build_structure_chain(llm: BaseChatModel):

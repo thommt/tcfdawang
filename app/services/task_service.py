@@ -50,6 +50,7 @@ class TaskService:
                 question_body=question.body,
                 answer_draft=session_entity.user_answer_draft or "",
             )
+            prompt_messages = eval_result.pop("_prompt_messages", None)
             latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
             conversation = LLMConversation(
                 session_id=session_id,
@@ -58,6 +59,7 @@ class TaskService:
                 messages={
                     "question": question.body,
                     "draft": session_entity.user_answer_draft or "",
+                    "prompt_messages": prompt_messages,
                 },
                 result=eval_result,
                 model_name=getattr(self.llm_client, "model", None),
@@ -102,6 +104,7 @@ class TaskService:
                 question_body=question.body,
                 answer_draft=session_entity.user_answer_draft or "",
             )
+            prompt_messages = compose_result.pop("_prompt_messages", None)
             latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
             conversation = LLMConversation(
                 session_id=session_id,
@@ -110,6 +113,7 @@ class TaskService:
                 messages={
                     "question": question.body,
                     "draft": session_entity.user_answer_draft or "",
+                    "prompt_messages": prompt_messages,
                 },
                 result=compose_result,
                 model_name=getattr(self.llm_client, "model", None),
