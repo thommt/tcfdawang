@@ -13,6 +13,7 @@ class Lexeme(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     headword: str = Field(index=True)
+    lemma: str = Field(default="")
     sense_label: Optional[str] = Field(default=None)
     gloss: Optional[str] = Field(default=None)
     translation_en: Optional[str] = Field(default=None)

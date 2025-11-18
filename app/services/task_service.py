@@ -487,6 +487,7 @@ class TaskService:
                     normalized_difficulty = self._normalize_difficulty(phrase.get("difficulty"))
                     lexeme = Lexeme(
                         headword=headword,
+                        lemma=headword,
                         sense_label=sense_label or None,
                         gloss=phrase.get("gloss"),
                         translation_en=phrase.get("translation_en"),

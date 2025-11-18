@@ -22,6 +22,7 @@ def init_db() -> None:
     _ensure_session_columns(engine)
     _ensure_task_columns(engine)
     _ensure_sentence_columns(engine)
+    _ensure_lexeme_columns(engine)
     _ensure_flashcard_columns(engine)
 
 
@@ -58,6 +59,26 @@ def _ensure_sentence_columns(engine) -> None:
             conn.execute(text("ALTER TABLE sentences ADD COLUMN translation_zh TEXT"))
         if "difficulty" not in columns:
             conn.execute(text("ALTER TABLE sentences ADD COLUMN difficulty TEXT"))
+
+
+def _ensure_lexeme_columns(engine) -> None:
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info('lexemes')"))
+        columns = {row[1] for row in result}
+        if not columns:
+            return
+        if "headword" not in columns:
+            conn.execute(text("ALTER TABLE lexemes ADD COLUMN headword TEXT"))
+        if "lemma" not in columns:
+            conn.execute(text("ALTER TABLE lexemes ADD COLUMN lemma TEXT"))
+        if "difficulty" not in columns:
+            conn.execute(text("ALTER TABLE lexemes ADD COLUMN difficulty TEXT"))
+        conn.execute(
+            text("UPDATE lexemes SET headword = COALESCE(headword, lemma, '') WHERE headword IS NULL OR headword = ''")
+        )
+        conn.execute(
+            text("UPDATE lexemes SET lemma = COALESCE(lemma, headword, '') WHERE lemma IS NULL OR lemma = ''")
+        )
 
 
 def _ensure_flashcard_columns(engine) -> None:

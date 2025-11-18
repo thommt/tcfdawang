@@ -164,7 +164,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - 若 URL 不在配置范围内，则返回可解析的错误信息，由前端提示用户手动处理或后续配置新的抓取器。
 
 ### 5.9 Lexeme 管理与合并
-1. 前端提供“Lexeme 管理”页面，列出每个词/短语的 `lemma`, `sense_label`, `gloss`, 引用次数、收藏/SRS 状态。
+1. 前端提供“Lexeme 管理”页面，列出每个词/短语的 `headword`, `sense_label`, `gloss`, 引用次数、收藏/SRS 状态。
 2. 用户可手动：
    - 编辑 `sense_label/gloss/translation`（将 `is_manual` 置为 true）。
    - 合并多个 Lexeme（选择主条目，系统更新所有 `ChunkLexeme.lexeme_id` 指向主条目，旧条目标记为 archived）。
