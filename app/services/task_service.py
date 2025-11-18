@@ -424,8 +424,32 @@ class TaskService:
             )
             split_prompt_messages = chunk_result.pop("_prompt_messages", [])
             chunks = chunk_result.get("chunks") or []
-            if not chunks:
-                raise LLMError("LLM 未返回任何 Chunk")
+            issues = self._assess_chunk_quality(sentence.text, chunks)
+            if issues:
+                sentence_extra["chunk_issues"] = issues
+                sentence.extra = sentence_extra
+                self.session.add(sentence)
+                self.session.commit()
+                conversation = LLMConversation(
+                    session_id=None,
+                    task_id=task.id,
+                    purpose="chunk_sentence",
+                    messages={
+                        "split_prompt": split_prompt_messages,
+                        "input_sentence": sentence.text,
+                        "known_issues": known_issues,
+                    },
+                    result={
+                        "chunks": chunks,
+                        "error": "Chunk 质检失败",
+                        "issues": issues,
+                    },
+                    model_name=getattr(self.llm_client, "model", None),
+                    latency_ms=None,
+                )
+                self.session.add(conversation)
+                self.session.commit()
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Chunk 质检失败；" + "；".join(issues))
             for item in chunks:
                 chunk = SentenceChunk(
                     sentence_id=sentence_id,
@@ -438,6 +462,7 @@ class TaskService:
                 )
                 self.session.add(chunk)
             sentence_extra.pop("split_issues", None)
+            sentence_extra.pop("chunk_issues", None)
             sentence.extra = sentence_extra
             self.session.add(sentence)
             self.session.commit()
@@ -562,10 +587,38 @@ class TaskService:
                 )
                 self.session.add(chunk_lexeme)
                 created += 1
+            missing_chunks = [idx for idx, count in per_chunk_counter.items() if count == 0]
+            if missing_chunks:
+                issues = [f"Chunk {idx} 未生成关键词" for idx in missing_chunks]
+                sentence_extra = dict(sentence.extra or {})
+                sentence_extra["lexeme_issues"] = issues
+                sentence.extra = sentence_extra
+                self.session.add(sentence)
+                self.session.commit()
+                conversation = LLMConversation(
+                    session_id=None,
+                    task_id=task.id,
+                    purpose="chunk_lexeme",
+                    messages={
+                        "lexeme_prompt": prompt_messages,
+                        "input_sentence": sentence.text,
+                    },
+                    result={"lexemes": lexeme_items, "error": "Lexeme 质检失败", "issues": issues},
+                    model_name=getattr(self.llm_client, "model", None),
+                    latency_ms=None,
+                )
+                self.session.add(conversation)
+                self.session.commit()
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="部分 Chunk 未生成关键词；" + "；".join(issues))
             self.session.commit()
             self._cleanup_orphan_lexemes(orphan_candidates)
             for lexeme_id in lexeme_ids_for_cards:
                 self._ensure_lexeme_flashcard(lexeme_id)
+            sentence_extra = dict(sentence.extra or {})
+            sentence_extra.pop("lexeme_issues", None)
+            sentence.extra = sentence_extra
+            self.session.add(sentence)
+            self.session.commit()
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,
@@ -636,6 +689,20 @@ class TaskService:
         normalized = difficulty.strip().upper()
         allowed = {"A1", "A2", "B1", "B2", "C1", "C2"}
         return normalized if normalized in allowed else None
+
+    def _assess_chunk_quality(self, sentence_text: str, chunks: list[dict]) -> list[str]:
+        issues: list[str] = []
+        if not chunks:
+            issues.append("未生成任何 Chunk")
+            return issues
+        total_length = len(sentence_text.strip()) or 1
+        chunk_text = "".join((item.get("text") or "").strip() for item in chunks)
+        if len(chunk_text) < total_length * 0.4:
+            issues.append("Chunk 覆盖度不足")
+        for idx, item in enumerate(chunks, start=1):
+            if not (item.get("text") or "").strip():
+                issues.append(f"Chunk {idx} 内容为空")
+        return issues
 
     def _normalize_pos_tag(self, pos_value: str | None) -> str | None:
         if not pos_value:
