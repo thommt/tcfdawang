@@ -190,6 +190,20 @@ export default defineComponent({
                   版本：V{reviewSourceAnswer.value.version_index} · 创建时间：
                   {new Date(reviewSourceAnswer.value.created_at).toLocaleString()}
                 </p>
+                {reviewComparison.value && (
+                  <ul class="comparison-stats">
+                    <li>
+                      词数：{reviewComparison.value.currentWords}（当前） / {reviewComparison.value.sourceWords}（原文） ·
+                      差值 {reviewComparison.value.diffWords >= 0 ? '+' : ''}
+                      {reviewComparison.value.diffWords}
+                    </li>
+                    <li>
+                      字符：{reviewComparison.value.currentChars}（当前） / {reviewComparison.value.sourceChars}（原文） ·
+                      差值 {reviewComparison.value.diffChars >= 0 ? '+' : ''}
+                      {reviewComparison.value.diffChars}
+                    </li>
+                  </ul>
+                )}
                 <details>
                   <summary>展开原文</summary>
                   <pre>{reviewSourceAnswer.value.text}</pre>
@@ -350,4 +364,26 @@ export default defineComponent({
       if (!current) return null;
       const fromState = (current.progress_state?.review_source_answer_id as number | undefined) ?? null;
       return fromState || current.answer_id || null;
+    });
+
+    const reviewComparison = computed(() => {
+      if (!reviewSourceAnswer.value) return null;
+      const baseText = reviewSourceAnswer.value.text || '';
+      const currentText = draft.value || '';
+      const countWords = (text: string) => {
+        const trimmed = text.trim();
+        return trimmed ? trimmed.split(/\s+/).length : 0;
+      };
+      const sourceWords = countWords(baseText);
+      const currentWords = countWords(currentText);
+      const sourceChars = baseText.length;
+      const currentChars = currentText.length;
+      return {
+        sourceWords,
+        currentWords,
+        diffWords: currentWords - sourceWords,
+        sourceChars,
+        currentChars,
+        diffChars: currentChars - sourceChars,
+      };
     });
