@@ -135,11 +135,19 @@ export default defineComponent({
             answerGroups.value.map((group) => (
               <article key={group.id} class="answer-group">
                 <h4>{group.title}</h4>
+                {group.descriptor && <p>主题：{group.descriptor}</p>}
+                {group.dialogue_profile && Object.keys(group.dialogue_profile).length > 0 && (
+                  <details>
+                    <summary>对话设定</summary>
+                    <pre>{JSON.stringify(group.dialogue_profile, null, 2)}</pre>
+                  </details>
+                )}
                 <p>共 {group.answers.length} 个版本</p>
                 <ul>
                   {group.answers.map((answer) => (
                     <li key={answer.id}>
-                      <strong>V{answer.version_index}:</strong> {answer.title}
+                      <strong>V{answer.version_index}:</strong> {answer.title} ·{' '}
+                      {new Date(answer.created_at).toLocaleDateString()}
                       <RouterLink style="margin-left: 0.5rem;" to={`/answers/${answer.id}`}>
                         查看
                       </RouterLink>

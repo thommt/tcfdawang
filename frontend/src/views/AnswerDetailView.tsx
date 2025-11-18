@@ -1,11 +1,10 @@
-import { defineComponent, ref, onMounted } from 'vue';
+import { defineComponent, ref, onMounted, computed } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
-import { fetchAnswerById } from '../api/answers';
+import { fetchAnswerById, fetchAnswerHistory } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
 import { fetchParagraphsByAnswer, runStructureTask } from '../api/paragraphs';
-import { fetchTasks } from '../api/tasks';
-import type { Answer, AnswerGroup, Paragraph } from '../types/answer';
+import type { Answer, AnswerGroup, Paragraph, AnswerHistory } from '../types/answer';
 import type { Question, FetchTask } from '../types/question';
 
 export default defineComponent({
@@ -22,18 +21,29 @@ export default defineComponent({
     const structuring = ref(false);
     const structureError = ref('');
     const structureMessage = ref('');
-    const latestStructureTask = ref<FetchTask | null>(null);
+    const history = ref<AnswerHistory | null>(null);
+    const historyLoading = ref(false);
+    const historyError = ref('');
 
     async function loadParagraphStructure() {
       paragraphs.value = await fetchParagraphsByAnswer(answerId);
     }
 
-    async function loadLatestStructureTask() {
+    const latestStructureTask = computed<FetchTask | null>(() => {
+      if (!history.value) return null;
+      return history.value.tasks.find((task) => task.type === 'structure') ?? null;
+    });
+
+    async function loadHistory() {
+      historyLoading.value = true;
+      historyError.value = '';
       try {
-        const tasks = await fetchTasks({ task_type: 'structure', answer_id: answerId });
-        latestStructureTask.value = tasks.length > 0 ? tasks[0] : null;
+        history.value = await fetchAnswerHistory(answerId);
       } catch (err) {
+        historyError.value = '无法加载历史记录';
         console.error(err);
+      } finally {
+        historyLoading.value = false;
       }
     }
 
@@ -47,7 +57,7 @@ export default defineComponent({
         group.value = await fetchAnswerGroupById(answer.value.answer_group_id);
         question.value = await fetchQuestionById(group.value.question_id);
         await loadParagraphStructure();
-        await loadLatestStructureTask();
+        await loadHistory();
       } catch (err) {
         error.value = '无法加载答案详情';
         throw err;
@@ -62,16 +72,15 @@ export default defineComponent({
       structureError.value = '';
       structureMessage.value = '';
       try {
-        const task = await runStructureTask(answerId);
-        latestStructureTask.value = task;
-        await loadParagraphStructure();
+        await runStructureTask(answerId);
         structureMessage.value = '结构分析完成';
       } catch (err) {
         structureError.value = '触发结构分析失败';
         console.error(err);
       } finally {
         structuring.value = false;
-        await loadLatestStructureTask();
+        await loadParagraphStructure();
+        await loadHistory();
       }
     }
 
@@ -95,9 +104,23 @@ export default defineComponent({
           </div>
         )}
         {group.value && (
-          <p>
-            答案组：<strong>{group.value.title}</strong>
-          </p>
+          <section class="answer-group-summary">
+            <h4>答案组：{group.value.title}</h4>
+            <p>
+              版本数量：<strong>{group.value.answers.length}</strong>
+            </p>
+            {group.value.descriptor && (
+              <p>
+                主题/描述：<em>{group.value.descriptor}</em>
+              </p>
+            )}
+            {group.value.dialogue_profile && Object.keys(group.value.dialogue_profile).length > 0 && (
+              <details>
+                <summary>对话设定</summary>
+                <pre>{JSON.stringify(group.value.dialogue_profile, null, 2)}</pre>
+              </details>
+            )}
+          </section>
         )}
         {answer.value && (
           <article class="answer-card">
@@ -149,6 +172,94 @@ export default defineComponent({
                 </ol>
               </article>
             ))}
+        </section>
+        <section class="answer-history">
+          <header>
+            <h4>学习历史</h4>
+          </header>
+          {historyLoading.value && <p>历史加载中...</p>}
+          {historyError.value && <p class="error">{historyError.value}</p>}
+          {history.value && (
+            <>
+              <div class="history-block">
+                <h5>相关 Session</h5>
+                {history.value.sessions.length ? (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>类型</th>
+                        <th>状态</th>
+                        <th>开始时间</th>
+                        <th>完成时间</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.value.sessions.map((session) => (
+                        <tr key={session.id}>
+                          <td>{session.id}</td>
+                          <td>{session.session_type}</td>
+                          <td>{session.status}</td>
+                          <td>{new Date(session.started_at).toLocaleString()}</td>
+                          <td>{session.completed_at ? new Date(session.completed_at).toLocaleString() : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p>尚无与此答案关联的 Session。</p>
+                )}
+              </div>
+              <div class="history-block">
+                <h5>任务记录</h5>
+                {history.value.tasks.length ? (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>类型</th>
+                        <th>状态</th>
+                        <th>更新时间</th>
+                        <th>错误</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.value.tasks.map((task) => (
+                        <tr key={task.id}>
+                          <td>{task.id}</td>
+                          <td>{task.type}</td>
+                          <td>{task.status}</td>
+                          <td>{new Date(task.updated_at).toLocaleString()}</td>
+                          <td>{task.error_message || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p>暂无任务记录。</p>
+                )}
+              </div>
+              <div class="history-block">
+                <h5>LLM 日志</h5>
+                {history.value.conversations.length ? (
+                  <ul class="conversation-list">
+                    {history.value.conversations.map((log) => (
+                      <li key={log.id}>
+                        <strong>{log.purpose}</strong> · {new Date(log.created_at).toLocaleString()}
+                        {log.model_name && <span> · {log.model_name}</span>}
+                        <details>
+                          <summary>查看详情</summary>
+                          <pre>{JSON.stringify(log.result, null, 2)}</pre>
+                        </details>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>暂无 LLM 日志。</p>
+                )}
+              </div>
+            </>
+          )}
         </section>
       </section>
     );

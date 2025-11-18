@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import List
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlmodel import Session as DBSession, select
 
 from app.db.schemas import (
@@ -11,6 +12,8 @@ from app.db.schemas import (
     Answer as AnswerSchema,
     Question,
     Session as SessionSchema,
+    Task,
+    LLMConversation,
 )
 from app.models.answer import (
     AnswerCreate,
@@ -21,7 +24,10 @@ from app.models.answer import (
     SessionRead,
     SessionUpdate,
     SessionFinalizePayload,
+    AnswerHistoryRead,
+    LLMConversationRead,
 )
+from app.models.fetch_task import TaskRead
 
 
 class SessionService:
@@ -162,6 +168,62 @@ class SessionService:
         if not answer:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
         return self._to_answer_read(answer)
+
+    def get_answer_history(self, answer_id: int) -> AnswerHistoryRead:
+        answer = self.session.get(AnswerSchema, answer_id)
+        if not answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        group = self.session.get(AnswerGroupSchema, answer.answer_group_id)
+        if not group:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer group not found")
+
+        sessions = (
+            self.session.exec(
+                select(SessionSchema)
+                .where(SessionSchema.answer_id == answer_id)
+                .order_by(SessionSchema.started_at)
+            ).all()
+        )
+        session_reads = [self._to_session_read(item) for item in sessions]
+        session_ids = [item.id for item in sessions if item.id is not None]
+
+        task_statement = select(Task)
+        if session_ids:
+            task_statement = task_statement.where(
+                or_(Task.answer_id == answer_id, Task.session_id.in_(session_ids))
+            )
+        else:
+            task_statement = task_statement.where(Task.answer_id == answer_id)
+        task_statement = task_statement.order_by(Task.created_at.desc())
+        tasks = self.session.exec(task_statement).all()
+        task_reads = [TaskRead.model_validate(task) for task in tasks]
+        task_ids = [task.id for task in tasks if task.id is not None]
+
+        conversation_conditions = []
+        if session_ids:
+            conversation_conditions.append(LLMConversation.session_id.in_(session_ids))
+        if task_ids:
+            conversation_conditions.append(LLMConversation.task_id.in_(task_ids))
+        if conversation_conditions:
+            conversation_statement = select(LLMConversation).order_by(LLMConversation.created_at.desc())
+            if len(conversation_conditions) == 1:
+                conversation_statement = conversation_statement.where(conversation_conditions[0])
+            else:
+                conversation_statement = conversation_statement.where(
+                    or_(*conversation_conditions)  # type: ignore[arg-type]
+                )
+            conversations = self.session.exec(conversation_statement).all()
+        else:
+            conversations = []
+        conversation_reads = [LLMConversationRead.model_validate(conv) for conv in conversations]
+
+        return AnswerHistoryRead(
+            answer=self._to_answer_read(answer),
+            group=self._to_answer_group_read(group, include_answers=True),
+            sessions=session_reads,
+            tasks=task_reads,
+            conversations=conversation_reads,
+        )
 
     # Helpers
     def _ensure_question_exists(self, question_id: int) -> None:

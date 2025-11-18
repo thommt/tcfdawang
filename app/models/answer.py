@@ -5,6 +5,8 @@ from typing import Optional, Literal, List
 
 from pydantic import BaseModel, Field, ConfigDict
 
+from app.models.fetch_task import TaskRead
+
 
 class AnswerGroupBase(BaseModel):
     question_id: int
@@ -82,3 +84,25 @@ class SessionFinalizePayload(BaseModel):
     dialogue_profile: Optional[dict] = None
     answer_title: str
     answer_text: str
+
+
+class LLMConversationRead(BaseModel):
+    id: int
+    session_id: Optional[int] = None
+    task_id: Optional[int] = None
+    purpose: str
+    messages: dict
+    result: dict
+    model_name: Optional[str] = None
+    latency_ms: Optional[int] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnswerHistoryRead(BaseModel):
+    answer: AnswerRead
+    group: AnswerGroupRead
+    sessions: List[SessionRead] = Field(default_factory=list)
+    tasks: List[TaskRead] = Field(default_factory=list)
+    conversations: List[LLMConversationRead] = Field(default_factory=list)

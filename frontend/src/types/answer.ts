@@ -1,3 +1,6 @@
+import type { Session } from './session';
+import type { FetchTask } from './question';
+
 export interface Answer {
   id: number;
   answer_group_id: number;
@@ -38,4 +41,24 @@ export interface Paragraph {
   extra: Record<string, unknown>;
   created_at: string;
   sentences: Sentence[];
+}
+
+export interface LLMConversationLog {
+  id: number;
+  session_id: number | null;
+  task_id: number | null;
+  purpose: string;
+  messages: Record<string, unknown>;
+  result: Record<string, unknown>;
+  model_name?: string | null;
+  latency_ms?: number | null;
+  created_at: string;
+}
+
+export interface AnswerHistory {
+  answer: Answer;
+  group: AnswerGroup;
+  sessions: Session[];
+  tasks: FetchTask[];
+  conversations: LLMConversationLog[];
 }

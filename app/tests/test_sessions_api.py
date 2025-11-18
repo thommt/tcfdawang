@@ -32,6 +32,17 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
         def evaluate_answer(self, **kwargs):
             return {"feedback": "很好", "score": 4}
 
+        def structure_answer(self, **kwargs):
+            return {
+                "paragraphs": [
+                    {
+                        "role": "intro",
+                        "summary": "summary",
+                        "sentences": [{"text": "Bonjour", "translation": "Hello"}],
+                    }
+                ]
+            }
+
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     app.dependency_overrides[get_session] = override_get_session
     test_client = TestClient(app)
@@ -170,3 +181,34 @@ def test_finalize_session_creates_answer(client: TestClient, session: Session) -
     data = list_resp.json()
     assert len(data) == 1
     assert len(data[0]["answers"]) == 2
+
+
+def test_answer_history_endpoint(client: TestClient) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Texte initial"},
+    ).json()
+    eval_resp = client.post(f"/sessions/{session_resp['id']}/tasks/eval")
+    assert eval_resp.status_code == 201
+
+    finalize_payload = {
+        "group_title": "历史答案",
+        "answer_title": "版本1",
+        "answer_text": "Une réponse complète",
+    }
+    finalize_resp = client.post(f"/sessions/{session_resp['id']}/finalize", json=finalize_payload)
+    assert finalize_resp.status_code == 200
+    answer_id = finalize_resp.json()["answer_id"]
+
+    structure_resp = client.post(f"/answers/{answer_id}/tasks/structure")
+    assert structure_resp.status_code == 201
+
+    history_resp = client.get(f"/answers/{answer_id}/history")
+    assert history_resp.status_code == 200
+    history = history_resp.json()
+    assert history["answer"]["id"] == answer_id
+    assert history["group"]["title"] == "历史答案"
+    assert len(history["sessions"]) == 1
+    assert any(task["type"] == "eval" for task in history["tasks"])
+    assert any(conv["purpose"] == "eval" for conv in history["conversations"])

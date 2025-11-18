@@ -12,6 +12,7 @@ from app.models.answer import (
     SessionRead,
     SessionUpdate,
     SessionFinalizePayload,
+    AnswerHistoryRead,
 )
 from app.models.fetch_task import TaskRead
 from app.services.session_service import SessionService
@@ -110,6 +111,11 @@ def create_answer(payload: AnswerCreate, service: SessionService = Depends(get_s
 @answers_router.get("/{answer_id}", response_model=AnswerRead)
 def get_answer(answer_id: int, service: SessionService = Depends(get_session_service)) -> AnswerRead:
     return service.get_answer(answer_id)
+
+
+@answers_router.get("/{answer_id}/history", response_model=AnswerHistoryRead)
+def get_answer_history(answer_id: int, service: SessionService = Depends(get_session_service)) -> AnswerHistoryRead:
+    return service.get_answer_history(answer_id)
 
 
 __all__ = ["sessions_router", "answer_group_router", "answers_router"]

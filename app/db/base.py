@@ -41,3 +41,6 @@ def _ensure_task_columns(engine) -> None:
         columns = {row[1] for row in result}
         if "session_id" not in columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN session_id INTEGER"))
+        if "answer_id" not in columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN answer_id INTEGER"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_answer_id ON tasks(answer_id)"))
