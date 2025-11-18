@@ -6,6 +6,7 @@ export interface TaskQueryParams {
   question_id?: number;
   task_type?: string;
   status?: string;
+  answer_id?: number;
 }
 
 export async function fetchTasks(params: TaskQueryParams = {}): Promise<FetchTask[]> {

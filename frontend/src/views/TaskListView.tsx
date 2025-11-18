@@ -26,7 +26,9 @@ export default defineComponent({
                 <th>类型</th>
                 <th>状态</th>
                 <th>Session</th>
+                <th>Answer</th>
                 <th>更新时间</th>
+                <th>错误</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -39,7 +41,11 @@ export default defineComponent({
                   <td>
                     {task.session_id ? <RouterLink to={`/sessions/${task.session_id}`}>{task.session_id}</RouterLink> : '—'}
                   </td>
+                  <td>
+                    {task.answer_id ? <RouterLink to={`/answers/${task.answer_id}`}>{task.answer_id}</RouterLink> : '—'}
+                  </td>
                   <td>{new Date(task.updated_at).toLocaleString()}</td>
+                  <td>{task.error_message || '—'}</td>
                   <td>
                     {['failed', 'canceled'].includes(task.status) && (
                       <button onClick={() => taskStore.retry(task.id)}>重试</button>

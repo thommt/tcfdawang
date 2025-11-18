@@ -9,8 +9,10 @@ const mockTask = {
   type: 'eval',
   status: 'succeeded',
   session_id: 2,
+  answer_id: null,
   payload: {},
   result_summary: {},
+  error_message: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };

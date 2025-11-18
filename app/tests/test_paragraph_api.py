@@ -8,6 +8,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 from app.main import app
 from app.api.dependencies import get_session, get_llm_client
 from app.db.schemas import Answer, AnswerGroup, Question, Paragraph, Sentence
+from app.services.llm_service import LLMError
 
 
 @pytest.fixture(name="session")
@@ -109,3 +110,21 @@ def test_run_structure_task(client: TestClient, session: Session) -> None:
     assert len(sentences) == 1
     assert sentences[0].text == "Salut"
     assert sentences[0].translation == "Hi"
+
+
+def test_structure_task_failure_keeps_previous_paragraphs(client: TestClient, session: Session) -> None:
+    answer_id = _create_answer(session)
+
+    class FailingLLM:
+        def structure_answer(self, **kwargs):
+            raise LLMError("failed to call LLM")
+
+    app.dependency_overrides[get_llm_client] = lambda: FailingLLM()
+    response = client.post(f"/answers/{answer_id}/tasks/structure")
+    assert response.status_code == 502
+
+    paragraphs = session.exec(
+        select(Paragraph).where(Paragraph.answer_id == answer_id).order_by(Paragraph.order_index)
+    ).all()
+    assert len(paragraphs) == 1
+    assert paragraphs[0].summary == "Summary"

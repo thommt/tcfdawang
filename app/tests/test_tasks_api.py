@@ -7,7 +7,7 @@ from sqlmodel import SQLModel, Session, create_engine
 
 from app.main import app
 from app.api.dependencies import get_session, get_llm_client
-from app.db.schemas import Task, Session as SessionSchema, Question
+from app.db.schemas import Task, Session as SessionSchema, Question, AnswerGroup, Answer
 
 
 @pytest.fixture(name="session")
@@ -63,6 +63,31 @@ def _create_question(session: Session, idx: int = 0) -> int:
     return sess.id
 
 
+def _create_answer(session: Session, idx: int = 0) -> int:
+    question = Question(
+        type="T2",
+        source="seikou",
+        year=2024,
+        month=10,
+        suite=str(idx + 1),
+        number=str(idx + 1),
+        title=f"Answer question {idx}",
+        body="Body",
+    )
+    session.add(question)
+    session.commit()
+    session.refresh(question)
+    group = AnswerGroup(question_id=question.id, title=f"Group {idx}")
+    session.add(group)
+    session.commit()
+    session.refresh(group)
+    answer = Answer(answer_group_id=group.id, title=f"Answer {idx}", text="Texte", status="active")
+    session.add(answer)
+    session.commit()
+    session.refresh(answer)
+    return answer.id
+
+
 def test_list_tasks(client: TestClient, session: Session) -> None:
     session_id = _create_question(session)
     task = Task(type="eval", status="succeeded", payload={"session_id": session_id}, session_id=session_id)
@@ -89,6 +114,22 @@ def test_filter_tasks_by_session(client: TestClient, session: Session) -> None:
     data = resp.json()
     assert len(data) == 1
     assert data[0]["type"] == "eval"
+
+
+def test_filter_tasks_by_answer(client: TestClient, session: Session) -> None:
+    answer_one = _create_answer(session, idx=0)
+    answer_two = _create_answer(session, idx=1)
+    tasks = [
+        Task(type="structure", status="failed", answer_id=answer_one, payload={"answer_id": answer_one}),
+        Task(type="structure", status="succeeded", answer_id=answer_two, payload={"answer_id": answer_two}),
+    ]
+    session.add_all(tasks)
+    session.commit()
+    resp = client.get(f"/tasks?task_type=structure&answer_id={answer_one}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["answer_id"] == answer_one
 
 
 def test_get_task_detail(client: TestClient, session: Session) -> None:

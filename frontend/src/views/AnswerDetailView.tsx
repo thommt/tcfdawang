@@ -4,8 +4,9 @@ import { fetchAnswerById } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
 import { fetchParagraphsByAnswer, runStructureTask } from '../api/paragraphs';
+import { fetchTasks } from '../api/tasks';
 import type { Answer, AnswerGroup, Paragraph } from '../types/answer';
-import type { Question } from '../types/question';
+import type { Question, FetchTask } from '../types/question';
 
 export default defineComponent({
   name: 'AnswerDetailView',
@@ -21,9 +22,19 @@ export default defineComponent({
     const structuring = ref(false);
     const structureError = ref('');
     const structureMessage = ref('');
+    const latestStructureTask = ref<FetchTask | null>(null);
 
     async function loadParagraphStructure() {
       paragraphs.value = await fetchParagraphsByAnswer(answerId);
+    }
+
+    async function loadLatestStructureTask() {
+      try {
+        const tasks = await fetchTasks({ task_type: 'structure', answer_id: answerId });
+        latestStructureTask.value = tasks.length > 0 ? tasks[0] : null;
+      } catch (err) {
+        console.error(err);
+      }
     }
 
     async function load() {
@@ -36,6 +47,7 @@ export default defineComponent({
         group.value = await fetchAnswerGroupById(answer.value.answer_group_id);
         question.value = await fetchQuestionById(group.value.question_id);
         await loadParagraphStructure();
+        await loadLatestStructureTask();
       } catch (err) {
         error.value = '无法加载答案详情';
         throw err;
@@ -50,7 +62,8 @@ export default defineComponent({
       structureError.value = '';
       structureMessage.value = '';
       try {
-        await runStructureTask(answerId);
+        const task = await runStructureTask(answerId);
+        latestStructureTask.value = task;
         await loadParagraphStructure();
         structureMessage.value = '结构分析完成';
       } catch (err) {
@@ -58,6 +71,7 @@ export default defineComponent({
         console.error(err);
       } finally {
         structuring.value = false;
+        await loadLatestStructureTask();
       }
     }
 
@@ -106,6 +120,15 @@ export default defineComponent({
           </header>
           {structureError.value && <p class="error">{structureError.value}</p>}
           {structureMessage.value && <p class="success">{structureMessage.value}</p>}
+          {latestStructureTask.value && (
+            <p class="structure-task-meta">
+              最近一次任务：#{latestStructureTask.value.id} · {latestStructureTask.value.status} ·
+              {new Date(latestStructureTask.value.updated_at).toLocaleString()}
+              {latestStructureTask.value.error_message && (
+                <span class="error"> 错误：{latestStructureTask.value.error_message}</span>
+              )}
+            </p>
+          )}
           {paragraphs.value.length === 0 && !loading.value && <p>暂无结构化结果</p>}
           {paragraphs.value.length > 0 &&
             paragraphs.value.map((paragraph) => (

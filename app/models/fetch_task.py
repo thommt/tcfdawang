@@ -15,8 +15,10 @@ class TaskRead(BaseModel):
     type: str
     status: str
     session_id: int | None = None
+    answer_id: int | None = None
     payload: dict
     result_summary: dict
+    error_message: str | None = None
     created_at: datetime
     updated_at: datetime
 

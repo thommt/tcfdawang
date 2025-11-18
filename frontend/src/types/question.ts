@@ -21,8 +21,11 @@ export interface FetchTask {
   id: number;
   type: string;
   status: string;
+  session_id: number | null;
+  answer_id: number | null;
   payload: Record<string, unknown>;
   result_summary: Record<string, unknown>;
+  error_message?: string | null;
   created_at: string;
   updated_at: string;
 }

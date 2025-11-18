@@ -35,7 +35,6 @@ class TaskService:
         task = Task(type="eval", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
         self.session.commit()
-        self.session.refresh(task)
         try:
             start = datetime.now(timezone.utc)
             eval_result = self.llm_client.evaluate_answer(
@@ -164,24 +163,17 @@ class TaskService:
         question = self.session.get(Question, group.question_id) if group else None
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-        task = Task(type="structure", status="pending", payload={"answer_id": answer_id}, session_id=None)
+        task = Task(
+            type="structure",
+            status="pending",
+            payload={"answer_id": answer_id},
+            session_id=None,
+            answer_id=answer_id,
+        )
         self.session.add(task)
         self.session.commit()
         self.session.refresh(task)
         try:
-            # Clear existing structure
-            existing_paragraphs = self.session.exec(
-                select(Paragraph).where(Paragraph.answer_id == answer_id)
-            ).all()
-            for paragraph in existing_paragraphs:
-                sentences = self.session.exec(
-                    select(Sentence).where(Sentence.paragraph_id == paragraph.id)
-                ).all()
-                for sentence in sentences:
-                    self.session.delete(sentence)
-                self.session.delete(paragraph)
-            self.session.commit()
-
             structure = self.llm_client.structure_answer(
                 question_type=question.type,
                 question_title=question.title,
@@ -191,41 +183,53 @@ class TaskService:
             if not isinstance(structure, dict):
                 raise LLMError("LLM 没有返回结构化结果")
             paragraphs_payload = structure.get("paragraphs") or []
-            for idx, para in enumerate(paragraphs_payload, start=1):
-                paragraph = Paragraph(
-                    answer_id=answer_id,
-                    order_index=idx,
-                    role_label=para.get("role"),
-                    summary=para.get("summary"),
-                    extra={},
-                )
-                self.session.add(paragraph)
-                self.session.commit()
-                self.session.refresh(paragraph)
-                for s_idx, sentence_data in enumerate(para.get("sentences", []), start=1):
-                    sentence = Sentence(
-                        paragraph_id=paragraph.id,
-                        order_index=s_idx,
-                        text=sentence_data.get("text", ""),
-                        translation=sentence_data.get("translation"),
+            with self.session.begin_nested():
+                existing_paragraphs = self.session.exec(
+                    select(Paragraph).where(Paragraph.answer_id == answer_id)
+                ).all()
+                for paragraph in existing_paragraphs:
+                    sentences = self.session.exec(
+                        select(Sentence).where(Sentence.paragraph_id == paragraph.id)
+                    ).all()
+                    for sentence in sentences:
+                        self.session.delete(sentence)
+                    self.session.delete(paragraph)
+
+                for idx, para in enumerate(paragraphs_payload, start=1):
+                    paragraph = Paragraph(
+                        answer_id=answer_id,
+                        order_index=idx,
+                        role_label=para.get("role"),
+                        summary=para.get("summary"),
                         extra={},
                     )
-                    self.session.add(sentence)
-                self.session.commit()
-            conversation = LLMConversation(
-                session_id=None,
-                task_id=task.id,
-                purpose="structure",
-                messages={"answer": answer.text},
-                result=structure,
-                model_name=getattr(self.llm_client, "model", None),
-                latency_ms=None,
-            )
-            self.session.add(conversation)
-            task.status = "succeeded"
-            task.result_summary = structure
-            task.updated_at = datetime.now(timezone.utc)
-            self.session.add(task)
+                    self.session.add(paragraph)
+                    self.session.flush()
+                    for s_idx, sentence_data in enumerate(para.get("sentences", []), start=1):
+                        sentence = Sentence(
+                            paragraph_id=paragraph.id,
+                            order_index=s_idx,
+                            text=sentence_data.get("text", ""),
+                            translation=sentence_data.get("translation"),
+                            extra={},
+                        )
+                        self.session.add(sentence)
+
+                conversation = LLMConversation(
+                    session_id=None,
+                    task_id=task.id,
+                    purpose="structure",
+                    messages={"answer": answer.text},
+                    result=structure,
+                    model_name=getattr(self.llm_client, "model", None),
+                    latency_ms=None,
+                )
+                self.session.add(conversation)
+                task.status = "succeeded"
+                task.result_summary = structure
+                task.updated_at = datetime.now(timezone.utc)
+                task.error_message = None
+                self.session.add(task)
             self.session.commit()
             self.session.refresh(task)
         except LLMError as exc:
@@ -235,4 +239,12 @@ class TaskService:
             self.session.add(task)
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        except Exception as exc:  # pragma: no cover
+            self.session.rollback()
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="结构化任务处理失败") from exc
         return TaskRead.model_validate(task)

@@ -10,6 +10,7 @@ class Task(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     session_id: Optional[int] = Field(default=None, foreign_key="sessions.id", index=True)
+    answer_id: Optional[int] = Field(default=None, foreign_key="answers.id", index=True)
     type: str = Field(index=True)
     status: str = Field(default="pending", index=True)
     payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))

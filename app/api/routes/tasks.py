@@ -26,9 +26,16 @@ def list_tasks(
     question_id: Optional[int] = None,
     task_type: Optional[str] = None,
     status: Optional[str] = None,
+    answer_id: Optional[int] = None,
     service: TaskQueryService = Depends(get_task_query_service),
 ) -> List[TaskRead]:
-    return service.list_tasks(session_id=session_id, question_id=question_id, task_type=task_type, status=status)
+    return service.list_tasks(
+        session_id=session_id,
+        question_id=question_id,
+        task_type=task_type,
+        status=status,
+        answer_id=answer_id,
+    )
 
 
 @router.get("/{task_id}", response_model=TaskRead)

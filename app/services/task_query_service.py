@@ -19,10 +19,13 @@ class TaskQueryService:
         question_id: Optional[int] = None,
         task_type: Optional[str] = None,
         status: Optional[str] = None,
+        answer_id: Optional[int] = None,
     ) -> List[TaskRead]:
         statement = select(Task)
         if session_id is not None:
             statement = statement.where(Task.session_id == session_id)
+        if answer_id is not None:
+            statement = statement.where(Task.answer_id == answer_id)
         if task_type is not None:
             statement = statement.where(Task.type == task_type)
         if status is not None:
