@@ -8,9 +8,13 @@ import {
   updateSession as updateSessionApi,
   runEvalTask,
   runComposeTask,
+  runCompareTask,
+  runGapHighlightTask,
+  runRefineTask,
   finalizeSession as finalizeSessionApi,
   fetchSessionHistory,
   createReviewSession as createReviewSessionApi,
+  completeLearning,
 } from '../api/sessions';
 
 interface State {
@@ -132,8 +136,36 @@ export const useSessionStore = defineStore('sessions', {
       await this.loadSessionHistory(sessionId);
       return task;
     },
+    async triggerCompare(sessionId: number) {
+      const task = await runCompareTask(sessionId);
+      this.lastTask = task;
+      await this.loadSession(sessionId);
+      await this.loadSessionHistory(sessionId);
+      return task;
+    },
+    async triggerGapHighlight(sessionId: number) {
+      const task = await runGapHighlightTask(sessionId);
+      this.lastTask = task;
+      await this.loadSession(sessionId);
+      await this.loadSessionHistory(sessionId);
+      return task;
+    },
+    async triggerRefine(sessionId: number) {
+      const task = await runRefineTask(sessionId);
+      this.lastTask = task;
+      await this.loadSession(sessionId);
+      await this.loadSessionHistory(sessionId);
+      return task;
+    },
     async finalizeSession(sessionId: number, payload: SessionFinalizePayload) {
       const session = await finalizeSessionApi(sessionId, payload);
+      this.currentSession = session;
+      this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
+      await this.loadSessionHistory(sessionId);
+      return session;
+    },
+    async completeLearning(sessionId: number) {
+      const session = await completeLearning(sessionId);
       this.currentSession = session;
       this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
       await this.loadSessionHistory(sessionId);

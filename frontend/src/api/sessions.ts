@@ -34,11 +34,31 @@ export async function runComposeTask(sessionId: number): Promise<FetchTask> {
   return response.data;
 }
 
+export async function runCompareTask(sessionId: number): Promise<FetchTask> {
+  const response = await apiClient.post<FetchTask>(`${resource}/${sessionId}/tasks/compare`, {});
+  return response.data;
+}
+
+export async function runGapHighlightTask(sessionId: number): Promise<FetchTask> {
+  const response = await apiClient.post<FetchTask>(`${resource}/${sessionId}/tasks/gap-highlight`, {});
+  return response.data;
+}
+
+export async function runRefineTask(sessionId: number): Promise<FetchTask> {
+  const response = await apiClient.post<FetchTask>(`${resource}/${sessionId}/tasks/refine`, {});
+  return response.data;
+}
+
 export async function finalizeSession(
   sessionId: number,
   payload: SessionFinalizePayload
 ): Promise<Session> {
   const response = await apiClient.post<Session>(`${resource}/${sessionId}/finalize`, payload);
+  return response.data;
+}
+
+export async function completeLearning(sessionId: number): Promise<Session> {
+  const response = await apiClient.post<Session>(`${resource}/${sessionId}/complete-learning`, {});
   return response.data;
 }
 

@@ -117,6 +117,19 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 5. 触发与首次相同的结构化与抽认卡流程；仅对新/变更句子更新 Flashcard 进度。
 6. 复习 Session 完成后，也必须重新执行 chunk→句子学习，以确保 flashcard 数据覆盖该版本（不论是新答案组还是既有组的 i+1 版本）。
 
+### 5.2.1 自动化任务状态机
+为保证中断可恢复且用户不会跳过关键步骤，后端 `Session.progress_state.phase` 需遵循以下状态机，并在每个阶段自动触发对应任务（同时保留手动调试按钮用于重试）：
+
+1. `draft`：用户编辑草稿，仅允许保存或点击“请求评估”。保存后立即触发 eval 任务。
+2. `await_eval_confirm`：eval 成功后自动触发 compare；compare 成功则进入下一个阶段。若 compare 判定需新答案组，则提示用户确认创建（phase 仍为 `await_eval_confirm`，直到用户确认）。
+3. `gap_highlight`：对于需要复用现有答案组的场景，compare 结束后自动触发 GapHighlighter；若 compare 决策为新组，可跳过该阶段。
+4. `refine`：GapHighlighter 完成后自动执行 Refined Answer 生成；用户确认采用后进入 `structure_pipeline`。
+5. `structure_pipeline`：串行触发 `structure`、`sentence_translate`、`chunk_sentence`、`chunk_lexeme`。任一任务失败时 phase 保持不变，用户可在调试按钮中单独重试。
+6. `learning`：当结构/翻译/拆分全部完成后，phase 进入 `learning`，前端仅展示 chunk→句子学习按钮。所有句子完成 chunk 生成后，允许用户点击“完成本轮学习”。
+7. `completed`：用户点击“完成本轮学习”或系统检测到全部 chunk 学习完毕时，将 Session 状态设为 completed，并在前端隐藏草稿/评估等入口。
+
+> 为保障可维护性，自动流程在每个阶段都需记录最近一次任务的结果与失败信息，并在 UI 提供一个“调试/手动操作”面板，允许用户手动重试 eval/compare/gap/refine/structure/translate/chunk/lexeme 等任务。
+
 ### 5.4 抽认卡（固定间隔 mock SRS）
 1. 后端根据 `FlashcardProgress.due_at` 输出今日到期卡片，分为两种模式：
    - **Guided（默认）**：按句子推进。若某句还有 chunk 卡片到期，则先返回该句的 chunk 卡（按 chunk 顺序/到期时间排序），所有 chunk 复习完成后才返回同一句的 sentence 卡，再切换到下一句。Guided 模式忽略 lexeme 卡片。

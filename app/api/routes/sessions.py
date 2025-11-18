@@ -97,8 +97,15 @@ def finalize_session(
     session_id: int,
     payload: SessionFinalizePayload,
     service: SessionService = Depends(get_session_service),
+    task_service: TaskService = Depends(get_task_service),
 ) -> SessionRead:
-    return service.finalize_session(session_id, payload)
+    result = service.finalize_session(session_id, payload)
+    if result.answer_id:
+        try:
+            task_service.run_structure_pipeline_for_answer(result.answer_id, session_id=result.id)
+        except HTTPException:
+            pass
+    return result
 
 
 answer_group_router = APIRouter(prefix="/answer-groups", tags=["answer-groups"])
@@ -163,3 +170,9 @@ def get_session_history(
 
 
 __all__ = ["sessions_router", "answer_group_router", "answers_router"]
+@sessions_router.post("/{session_id}/complete-learning", response_model=SessionRead)
+def complete_learning(
+    session_id: int,
+    service: SessionService = Depends(get_session_service),
+) -> SessionRead:
+    return service.mark_learning_complete(session_id)

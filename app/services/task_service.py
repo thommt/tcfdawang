@@ -32,6 +32,21 @@ class TaskService:
         self.llm_client = llm_client
         self.flashcard_service = FlashcardService(session)
 
+    def _question_has_answers(self, question_id: int) -> bool:
+        exists = self.session.exec(
+            select(AnswerSchema.id)
+            .join(AnswerGroupSchema, AnswerGroupSchema.id == AnswerSchema.answer_group_id)
+            .where(AnswerGroupSchema.question_id == question_id)
+        ).first()
+        return exists is not None
+
+    def _set_session_phase(self, session_entity: SessionSchema, phase: str) -> None:
+        progress_state = dict(session_entity.progress_state or {})
+        progress_state["phase"] = phase
+        session_entity.progress_state = progress_state
+        session_entity.updated_at = datetime.now(timezone.utc)
+        self.session.add(session_entity)
+
     def run_eval_task(self, session_id: int) -> TaskRead:
         session_entity = self.session.get(SessionSchema, session_id)
         if not session_entity:
@@ -81,6 +96,11 @@ class TaskService:
             self.session.add(task)
             self.session.commit()
             self.session.refresh(task)
+            if self._question_has_answers(question.id):
+                try:
+                    self.run_answer_compare_task(session_id)
+                except HTTPException:
+                    pass
         except LLMError as exc:
             task.status = "failed"
             task.error_message = str(exc)
@@ -235,6 +255,11 @@ class TaskService:
             compare_payload = dict(compare_result)
             compare_payload["saved_at"] = saved_at.isoformat()
             progress_state["last_compare"] = compare_payload
+            decision = compare_payload.get("decision")
+            if decision == "reuse":
+                progress_state["phase"] = "gap_highlight"
+            elif decision == "new_group":
+                progress_state["phase"] = "await_new_group"
             session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
@@ -244,6 +269,11 @@ class TaskService:
             self.session.add(task)
             self.session.commit()
             self.session.refresh(task)
+            if compare_payload.get("decision") == "reuse":
+                try:
+                    self.run_gap_highlight_task(session_id)
+                except HTTPException:
+                    pass
         except LLMError as exc:
             task.status = "failed"
             task.error_message = str(exc)
@@ -321,6 +351,7 @@ class TaskService:
             payload = dict(highlight)
             payload["saved_at"] = saved_at.isoformat()
             progress_state["last_gap_highlight"] = payload
+            progress_state["phase"] = "refine"
             session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
@@ -330,6 +361,10 @@ class TaskService:
             self.session.add(task)
             self.session.commit()
             self.session.refresh(task)
+            try:
+                self.run_refine_answer_task(session_id)
+            except HTTPException:
+                pass
         except LLMError as exc:
             task.status = "failed"
             task.error_message = str(exc)
@@ -381,6 +416,7 @@ class TaskService:
             payload = dict(refined)
             payload["saved_at"] = saved_at.isoformat()
             progress_state["last_refine"] = payload
+            progress_state["phase"] = "await_finalize"
             session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
@@ -398,6 +434,41 @@ class TaskService:
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
+
+    def run_structure_pipeline_for_answer(self, answer_id: int, session_id: int | None = None) -> None:
+        try:
+            self.run_structure_task_for_answer(answer_id)
+        except HTTPException:
+            return
+        try:
+            self.run_sentence_translation_for_answer(answer_id)
+        except HTTPException:
+            pass
+        sentence_rows = self.session.exec(
+            select(Sentence.id)
+            .join(Paragraph, Paragraph.id == Sentence.paragraph_id)
+            .where(Paragraph.answer_id == answer_id)
+            .order_by(Paragraph.order_index, Sentence.order_index)
+        ).all()
+        for row in sentence_rows:
+            sentence_id = row if isinstance(row, int) else row[0]
+            try:
+                self.run_chunk_task(sentence_id)
+            except HTTPException:
+                continue
+            try:
+                self.run_chunk_lexeme_task(sentence_id)
+            except HTTPException:
+                continue
+        if session_id:
+            session_entity = self.session.get(SessionSchema, session_id)
+            if session_entity:
+                progress_state = dict(session_entity.progress_state or {})
+                progress_state["phase"] = "learning"
+                session_entity.progress_state = progress_state
+                session_entity.updated_at = datetime.now(timezone.utc)
+                self.session.add(session_entity)
+                self.session.commit()
 
     def _ensure_sentence_flashcard(self, sentence_id: int) -> None:
         self.flashcard_service.get_or_create(

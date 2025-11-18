@@ -69,6 +69,50 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
         def refine_answer(self, **kwargs):
             return {"text": "Réponse enrichie", "notes": ["加入更多细节"]}
 
+        def translate_sentences(self, sentences: list[str], **kwargs):
+            return {
+                "translations": [
+                    {
+                        "sentence_index": idx + 1,
+                        "translation_en": sentence,
+                        "translation_zh": sentence,
+                        "difficulty": "B1",
+                    }
+                    for idx, sentence in enumerate(sentences)
+                ]
+            }
+
+        def chunk_sentence(self, **kwargs):
+            return {
+                "chunks": [
+                    {
+                        "chunk_index": 1,
+                        "text": "Bonjour",
+                        "translation_en": "Hello",
+                        "translation_zh": "你好",
+                        "chunk_type": "expression",
+                    }
+                ],
+                "_prompt_messages": [],
+            }
+
+        def build_chunk_lexemes(self, **kwargs):
+            return {
+                "lexemes": [
+                    {
+                        "chunk_index": 1,
+                        "headword": "bonjour",
+                        "sense_label": "问候",
+                        "gloss": "hello",
+                        "translation_en": "hello",
+                        "translation_zh": "你好",
+                        "pos_tags": "noun",
+                        "difficulty": "A1",
+                    }
+                ],
+                "_prompt_messages": [],
+            }
+
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     app.dependency_overrides[get_session] = override_get_session
     test_client = TestClient(app)

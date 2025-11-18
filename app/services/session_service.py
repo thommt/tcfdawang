@@ -126,6 +126,21 @@ class SessionService:
         self.session.refresh(session_entity)
         return self._to_session_read(session_entity)
 
+    def mark_learning_complete(self, session_id: int) -> SessionRead:
+        session = self._get_session_entity(session_id)
+        progress = dict(session.progress_state or {})
+        if progress.get("phase") != "learning":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前阶段不可完成")
+        progress["phase"] = "completed"
+        session.progress_state = progress
+        session.status = "completed"
+        session.completed_at = datetime.now(timezone.utc)
+        session.updated_at = datetime.now(timezone.utc)
+        self.session.add(session)
+        self.session.commit()
+        self.session.refresh(session)
+        return self._to_session_read(session)
+
     # Answer group operations
     def create_answer_group(self, data: AnswerGroupCreate) -> AnswerGroupRead:
         self._ensure_question_exists(data.question_id)

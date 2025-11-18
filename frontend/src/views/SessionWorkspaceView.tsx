@@ -32,6 +32,11 @@ export default defineComponent({
     const answerText = ref('');
 
     const sessionCompleted = computed(() => session.value?.status === 'completed');
+    const currentPhase = computed(() => {
+      const raw = session.value?.progress_state?.phase as string | undefined;
+      return raw || 'draft';
+    });
+    const showDebug = ref(false);
 
     const session = computed<Session | null>(() => sessionStore.currentSession);
     const sessionHistory = computed(() => sessionStore.history);
@@ -231,6 +236,11 @@ export default defineComponent({
       }
     }
 
+    async function markLearningDone() {
+      if (!session.value) return;
+      await sessionStore.completeLearning(session.value.id);
+    }
+
     onMounted(() => {
       loadData();
     });
@@ -312,12 +322,10 @@ export default defineComponent({
           <div class="phase-indicator">
             当前阶段：<strong>{currentPhase.value}</strong>
             {currentPhase.value === 'draft' && <span class="hint">请先撰写草稿并请求评估</span>}
-            {currentPhase.value === 'await_eval_confirm' && (
-              <span class="hint">已获得评估反馈，可生成范文并进入学习</span>
-            )}
-            {currentPhase.value === 'compose_completed' && (
-              <span class="hint">范文已生成，可继续结构化与 chunk 学习</span>
-            )}
+            {currentPhase.value === 'await_new_group' && <span class="hint">建议创建新的答案组</span>}
+            {currentPhase.value === 'await_finalize' && <span class="hint">可根据范文生成最终答案</span>}
+            {currentPhase.value === 'learning' && <span class="hint">请完成 chunk/句子学习后点击完成</span>}
+            {currentPhase.value === 'completed' && <span class="hint">本次学习已完成</span>}
           </div>
           <label>
             <span>草稿</span>
@@ -334,20 +342,47 @@ export default defineComponent({
             <button onClick={saveDraft} disabled={saving.value || sessionCompleted.value}>
               {saving.value ? '保存中...' : '保存草稿'}
             </button>
-            <button onClick={evaluate} disabled={evalRunning.value || sessionCompleted.value}>
+            <button
+              onClick={evaluate}
+              disabled={evalRunning.value || sessionCompleted.value || currentPhase.value !== 'draft'}
+            >
               {evalRunning.value ? '评估中...' : '请求评估'}
             </button>
             <button
               onClick={composeAnswer}
-              disabled={composing.value || sessionCompleted.value || !lastEval.value}
-              title={!lastEval.value ? '请先完成评估' : ''}
+              disabled={
+                composing.value ||
+                sessionCompleted.value ||
+                !lastEval.value ||
+                (currentPhase.value !== 'await_finalize' && currentPhase.value !== 'await_new_group')
+              }
+              title={
+                !lastEval.value ? '请先完成评估' : currentPhase.value === 'draft' ? '当前阶段不可生成' : ''
+              }
             >
               {composing.value ? '生成中...' : 'LLM 生成答案'}
             </button>
             <button type="button" onClick={openFinalize} disabled={sessionCompleted.value}>
               {sessionCompleted.value ? '已完成' : '完成 Session'}
             </button>
+            {currentPhase.value === 'learning' && (
+              <button type="button" onClick={markLearningDone} disabled={sessionCompleted.value}>
+                标记学习完成
+              </button>
+            )}
           </div>
+        </section>
+        <section class="debug-panel">
+          <button type="button" onClick={() => (showDebug.value = !showDebug.value)}>
+            {showDebug.value ? '收起调试' : '调试/手动操作'}
+          </button>
+          {showDebug.value && session.value && (
+            <div class="debug-actions">
+              <button onClick={() => sessionStore.triggerCompare(session.value!.id)}>触发对比</button>
+              <button onClick={() => sessionStore.triggerGapHighlight(session.value!.id)}>GapHighlighter</button>
+              <button onClick={() => sessionStore.triggerRefine(session.value!.id)}>生成精炼范文</button>
+            </div>
+          )}
         </section>
         <section class="feedback-panel">
           <h3>最近评估反馈</h3>
