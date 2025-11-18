@@ -224,6 +224,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - `POST /sessions/{id}/draft` 更新用户草稿答案
 - `POST /sessions/{id}/llm/eval` 触发评估轮次（可使用 WebSocket 推送）
 - `POST /answers/{id}/finalize` 将 session 最终结果固化为 Answer
+- `DELETE /answers/{id}` 删除指定答案版本（会清理段落/句子/Chunk 及相关 flashcard）
 - `GET /answers/{id}` 查看答案结构、句子、图数据
    - `POST /sentences/{id}/tasks/chunks`：触发句子拆分为记忆块（可选参数：是否强制、指定范围）；成功后写入 `SentenceChunk`
    - `POST /sentences/{id}/tasks/chunk-lexemes`：基于已存在的 chunk 生成关键词 `Lexeme`，建立 `ChunkLexeme` 关联

@@ -129,6 +129,11 @@ def create_review_session(answer_id: int, service: SessionService = Depends(get_
     return service.create_review_session(answer_id)
 
 
+@answers_router.delete("/{answer_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_answer(answer_id: int, service: SessionService = Depends(get_session_service)) -> None:
+    service.delete_answer(answer_id)
+
+
 @sessions_router.get("/{session_id}/history", response_model=SessionHistoryRead)
 def get_session_history(
     session_id: int, service: SessionService = Depends(get_session_service)

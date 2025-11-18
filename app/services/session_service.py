@@ -166,6 +166,14 @@ class SessionService:
         self.session.delete(group)
         self.session.commit()
 
+    def delete_answer(self, answer_id: int) -> None:
+        answer = self.session.get(AnswerSchema, answer_id)
+        if not answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        self._delete_answer_dependencies(answer_id)
+        self.session.delete(answer)
+        self.session.commit()
+
     # Answer operations
     def create_answer(self, data: AnswerCreate) -> AnswerRead:
         self._ensure_answer_group_exists(data.answer_group_id)

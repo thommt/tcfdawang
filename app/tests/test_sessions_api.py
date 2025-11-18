@@ -375,3 +375,58 @@ def test_delete_answer_group_cascades(client: TestClient, session: Session) -> N
     )
     updated_session = client.get(f"/sessions/{review_session['id']}").json()
     assert updated_session["answer_id"] is None
+
+
+def test_delete_single_answer(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client)
+    group = client.post(
+        "/answer-groups",
+        json={"question_id": question_id, "title": "Group"},
+    ).json()
+    answer = client.post(
+        "/answers",
+        json={
+            "answer_group_id": group["id"],
+            "title": "Answer title",
+            "text": "Texte",
+        },
+    ).json()
+    paragraph = Paragraph(answer_id=answer["id"], order_index=1, role_label="intro", summary="sum", extra={})
+    session.add(paragraph)
+    session.commit()
+    session.refresh(paragraph)
+    sentence = Sentence(
+        paragraph_id=paragraph.id,
+        order_index=1,
+        text="Bonjour tout le monde",
+        translation_en="Hello everyone",
+        translation_zh="大家好",
+        difficulty="B1",
+        extra={},
+    )
+    session.add(sentence)
+    session.commit()
+    session.refresh(sentence)
+    chunk = SentenceChunk(
+        sentence_id=sentence.id,
+        order_index=1,
+        text="Bonjour",
+        translation_en="Hello",
+        translation_zh="你好",
+        chunk_type="expression",
+        extra={},
+    )
+    session.add(chunk)
+    session.commit()
+    session.refresh(chunk)
+    flashcard = FlashcardProgress(entity_type="sentence", entity_id=sentence.id)
+    session.add(flashcard)
+    session.commit()
+    resp = client.delete(f"/answers/{answer['id']}")
+    assert resp.status_code == 204
+    assert client.get(f"/answers/{answer['id']}").status_code == 404
+    assert client.get(f"/answer-groups/{group['id']}").status_code == 200
+    assert session.exec(select(Paragraph).where(Paragraph.answer_id == answer["id"])).all() == []
+    assert session.exec(select(Sentence).where(Sentence.paragraph_id == paragraph.id)).all() == []
+    assert session.exec(select(SentenceChunk).where(SentenceChunk.sentence_id == sentence.id)).all() == []
+    assert session.exec(select(FlashcardProgress).where(FlashcardProgress.entity_type == "sentence")).all() == []

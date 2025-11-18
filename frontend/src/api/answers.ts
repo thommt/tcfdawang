@@ -12,3 +12,7 @@ export async function fetchAnswerHistory(id: number): Promise<AnswerHistory> {
   const response = await apiClient.get<AnswerHistory>(`${resource}/${id}/history`);
   return response.data;
 }
+
+export async function deleteAnswer(id: number): Promise<void> {
+  await apiClient.delete(`${resource}/${id}`);
+}

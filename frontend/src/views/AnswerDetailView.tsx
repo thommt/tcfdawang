@@ -1,6 +1,6 @@
 import { defineComponent, ref, onMounted, computed } from 'vue';
 import { useRoute, RouterLink, useRouter } from 'vue-router';
-import { fetchAnswerById, fetchAnswerHistory } from '../api/answers';
+import { fetchAnswerById, fetchAnswerHistory, deleteAnswer } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
 import { fetchParagraphsByAnswer, runStructureTask, runSentenceTranslationTask } from '../api/paragraphs';
@@ -191,6 +191,28 @@ export default defineComponent({
       return extractLexemeIssues(sentence.extra);
     }
 
+    async function handleDeleteAnswer() {
+      if (!answer.value || deleting.value) return;
+      if (!window.confirm('确定要删除当前答案版本吗？该操作不可恢复。')) {
+        return;
+      }
+      deleting.value = true;
+      deleteError.value = '';
+      try {
+        await deleteAnswer(answer.value.id);
+        if (question.value) {
+          router.push(`/questions/${question.value.id}`);
+        } else {
+          router.push('/questions');
+        }
+      } catch (err) {
+        deleteError.value = '删除失败，请稍后重试';
+        console.error(err);
+      } finally {
+        deleting.value = false;
+      }
+    }
+
     onMounted(() => {
       load();
     });
@@ -242,6 +264,9 @@ export default defineComponent({
             <button type="button" onClick={startReviewSession}>
               基于此答案创建复习 Session
             </button>
+            <button type="button" class="danger" onClick={handleDeleteAnswer} disabled={deleting.value}>
+              {deleting.value ? '删除中...' : '删除该答案版本'}
+            </button>
             <div class="flashcard-shortcuts">
               <button type="button" onClick={() => goToFlashcards('sentence')}>
                 复习句子抽认卡
@@ -254,6 +279,7 @@ export default defineComponent({
               </button>
             </div>
             {reviewError.value && <p class="error">{reviewError.value}</p>}
+            {deleteError.value && <p class="error">{deleteError.value}</p>}
           </article>
         )}
         <section class="paragraphs">
@@ -503,3 +529,5 @@ export default defineComponent({
     );
   },
 });
+    const deleting = ref(false);
+    const deleteError = ref('');
