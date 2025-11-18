@@ -18,6 +18,7 @@
 - 前端使用 Vite + Vue3 + TypeScript (Pinia/Vue Router) 初始化完毕。
 - 新增可配置的题目抓取器与 API（`POST /questions/fetch`、`GET /questions/fetch/results`、`POST /questions/fetch/import`），目前支持多个官方口语题发布站点（代称 Seikou、Tanpaku）。
 - 句子拆解已升级为“Chunk → Lexeme”双阶段流程：`POST /sentences/{id}/tasks/chunks` 生成记忆块，`POST /sentences/{id}/tasks/chunk-lexemes` 在 chunk 内抽取关键词；所有质检问题会写入 `sentence.extra.{chunk|lexeme}_issues`，前端会提示用户重试。
+- 抽认卡学习流程采用 **按句子推进** 的 guided 模式：同一句子下的 chunk 卡片需要全部复习完毕后，才会出现对应的整句卡片；完成该句后自动切换到下一句。需要按 chunk/句子/lexeme 独立练习时，可切换至 manual 模式使用传统过滤器。
 - `/llm-conversations` API 及对应前端页面可查看最近的 LLM 调用记录，包含 prompt 与输出，便于调试/追踪拆分质量。
 - 参考 `spec.md`、`frontend_spec.md` 获取业务与页面细节。
 

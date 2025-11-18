@@ -116,12 +116,13 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 5. 触发与首次相同的结构化与抽认卡流程；仅对新/变更句子更新 Flashcard 进度。
 
 ### 5.4 抽认卡（固定间隔 mock SRS）
-1. 后端根据 `FlashcardProgress.due_at` 输出今日到期卡片。
-2. 前端支持：
-   - 句子模式：提示中文/英文翻译，用户回答法语。
-   - Chunk 模式：基于 `SentenceChunk` 练记忆块（展示 chunk 原文与翻译）。
-   - 词块/Lexeme 模式：先练各 chunk 的关键词，全部完成后可切回整句。
-3. 用户提交结果（对/错/困难），后端更新 `streak`、`interval_days`（使用简化表，例如 1→3→7→14→...），同时记录答题日志。
+1. 后端根据 `FlashcardProgress.due_at` 输出今日到期卡片，分为两种模式：
+   - **Guided（默认）**：按句子推进。若某句还有 chunk 卡片到期，则先返回该句的 chunk 卡（按 chunk 顺序/到期时间排序），所有 chunk 复习完成后才返回同一句的 sentence 卡，再切换到下一句。Guided 模式忽略 lexeme 卡片。
+   - **Manual**：与早期版本一致，可通过 `entity_type=chunk/sentence/lexeme` 过滤，适合针对特定实体单独训练或排查问题。
+2. 前端 `FlashcardsView`：
+   - 默认进入 Guided 模式，自动呈现“本句 chunk → 本句整句 → 下一句”的序列；同时保留手动筛选按钮以切换到 chunk/句子/lexeme 独立练习。
+   - 每张卡片显示来源句/段落信息与翻译；若 `sentence.extra` 有 `chunk_issues` 或 `lexeme_issues`，在 Guided 模式下提示用户是否需要重试拆分任务。
+3. 用户提交结果（对/错/困难），后端更新 `streak`、`interval_days`（使用简化表，例如 1→3→7→14→...），同时记录答题日志；Guided/Manual 模式共享同一套 `FlashcardProgress` 数据。
 4. 抽认卡调度可通过后台任务（批量更新 due_at、生成 new cards）运行，避免长事务。
 
 ### 5.5 T2 对话结构特例

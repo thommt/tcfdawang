@@ -6,7 +6,7 @@ import FlashcardsView from '../../src/views/FlashcardsView';
 import type { FlashcardStudyCard } from '../../src/types/flashcard';
 import * as flashcardApi from '../../src/api/flashcards';
 
-const routeMock = reactive({ query: { type: 'chunk' } });
+const routeMock = reactive<{ query: Record<string, string> }>({ query: {} });
 const routerMock = { replace: vi.fn() };
 
 vi.mock('vue-router', () => ({
@@ -59,7 +59,7 @@ describe('FlashcardsView', () => {
 
   beforeEach(() => {
     routerMock.replace.mockClear();
-    routeMock.query.type = 'chunk';
+    routeMock.query = {};
     fetchSpy = vi.spyOn(flashcardApi, 'fetchDueFlashcards').mockResolvedValue([buildChunkCard()]);
   });
 
@@ -67,10 +67,10 @@ describe('FlashcardsView', () => {
     vi.restoreAllMocks();
   });
 
-  it('defaults to chunk filter and renders chunk data', async () => {
+  it('defaults to guided mode and renders chunk data', async () => {
     const wrapper = mount(FlashcardsView);
     await flushPromises();
-    expect(fetchSpy).toHaveBeenCalledWith('chunk');
+    expect(fetchSpy).toHaveBeenCalledWith({ mode: 'guided' });
     expect(wrapper.text()).toContain('记忆块卡片');
     expect(wrapper.text()).toContain('il faut s’adapter');
   });
@@ -85,6 +85,6 @@ describe('FlashcardsView', () => {
     expect(lexemeButton).toBeTruthy();
     await lexemeButton?.trigger('click');
     await flushPromises();
-    expect(fetchSpy).toHaveBeenCalledWith('lexeme');
+    expect(fetchSpy).toHaveBeenLastCalledWith({ mode: 'manual', entityType: 'lexeme' });
   });
 });

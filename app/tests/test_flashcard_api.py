@@ -1,13 +1,16 @@
 from typing import Generator
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
-from app.db.schemas import Question, AnswerGroup, Answer, Paragraph, Sentence, SentenceChunk
+from app.db.schemas import Question, AnswerGroup, Answer, Paragraph, Sentence, SentenceChunk, FlashcardProgress
 from app.main import app
 from app.api.dependencies import get_session
+from app.services.flashcard_service import FlashcardService
+from app.models.flashcard import FlashcardProgressCreate
 
 
 @pytest.fixture(name="session")
@@ -82,6 +85,19 @@ def _seed_chunk(session: Session) -> SentenceChunk:
     return chunk
 
 
+def _create_due_card(session: Session, entity_type: str, entity_id: int) -> int:
+    service = FlashcardService(session)
+    created = service.get_or_create(
+        FlashcardProgressCreate(entity_type=entity_type, entity_id=entity_id)
+    )
+    record = session.get(FlashcardProgress, created.id)
+    assert record is not None
+    record.due_at = datetime.now(timezone.utc) - timedelta(days=1)
+    session.add(record)
+    session.commit()
+    return record.id
+
+
 def test_create_and_list_flashcards(client: TestClient, session: Session) -> None:
     sentence = _seed_sentence(session)
     create_resp = client.post(
@@ -93,7 +109,7 @@ def test_create_and_list_flashcards(client: TestClient, session: Session) -> Non
     assert card["entity_type"] == "sentence"
     assert card["entity_id"] == sentence.id
 
-    list_resp = client.get("/flashcards?entity_type=sentence")
+    list_resp = client.get("/flashcards", params={"mode": "manual", "entity_type": "sentence"})
     assert list_resp.status_code == 200
     data = list_resp.json()
     assert len(data) == 1
@@ -121,7 +137,7 @@ def test_chunk_flashcard_payload(client: TestClient, session: Session) -> None:
         json={"entity_type": "chunk", "entity_id": chunk.id},
     )
     assert create_resp.status_code == 201
-    list_resp = client.get("/flashcards?entity_type=chunk")
+    list_resp = client.get("/flashcards", params={"mode": "manual", "entity_type": "chunk"})
     assert list_resp.status_code == 200
     data = list_resp.json()
     assert len(data) == 1
@@ -129,3 +145,70 @@ def test_chunk_flashcard_payload(client: TestClient, session: Session) -> None:
     chunk_payload = data[0]["chunk"]
     assert chunk_payload["text"] == "Bonjour"
     assert chunk_payload["sentence"]["text"] == "Bonjour tout le monde"
+
+
+def test_guided_mode_prioritizes_chunks(client: TestClient, session: Session) -> None:
+    sentence = _seed_sentence(session)
+    chunk_a = SentenceChunk(
+        sentence_id=sentence.id,
+        order_index=1,
+        text="Bonjour",
+        translation_en="Hello",
+        translation_zh="你好",
+        chunk_type="expression",
+        extra={},
+    )
+    chunk_b = SentenceChunk(
+        sentence_id=sentence.id,
+        order_index=2,
+        text="tout le monde",
+        translation_en="everyone",
+        translation_zh="大家",
+        chunk_type="expression",
+        extra={},
+    )
+    session.add(chunk_a)
+    session.add(chunk_b)
+    session.commit()
+    session.refresh(chunk_a)
+    session.refresh(chunk_b)
+    _create_due_card(session, "chunk", chunk_a.id)
+    _create_due_card(session, "chunk", chunk_b.id)
+    _create_due_card(session, "sentence", sentence.id)
+
+    resp = client.get("/flashcards")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert data[0]["card"]["entity_type"] == "chunk"
+    assert data[0]["chunk"]["order_index"] == 1
+    assert data[1]["chunk"]["order_index"] == 2
+
+
+def test_guided_mode_returns_sentence_when_chunks_done(client: TestClient, session: Session) -> None:
+    sentence = _seed_sentence(session)
+    chunk = SentenceChunk(
+        sentence_id=sentence.id,
+        order_index=1,
+        text="Bonjour",
+        translation_en="Hello",
+        translation_zh="你好",
+        chunk_type="expression",
+        extra={},
+    )
+    session.add(chunk)
+    session.commit()
+    session.refresh(chunk)
+    chunk_card_id = _create_due_card(session, "chunk", chunk.id)
+    # 模拟已完成 chunk 复习：将 due_at 调整到未来
+    record = session.get(FlashcardProgress, chunk_card_id)
+    record.due_at = datetime.now(timezone.utc) + timedelta(days=3)
+    session.add(record)
+    session.commit()
+    _create_due_card(session, "sentence", sentence.id)
+
+    resp = client.get("/flashcards")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["card"]["entity_type"] == "sentence"

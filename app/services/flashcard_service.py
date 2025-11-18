@@ -42,7 +42,15 @@ class FlashcardService:
         self.session.refresh(entity)
         return FlashcardProgressRead.model_validate(entity)
 
-    def list_due(self, *, entity_type: Optional[str] = None, limit: int = 50) -> List[FlashcardStudyCardRead]:
+    def list_due(
+        self,
+        *,
+        entity_type: Optional[str] = None,
+        mode: str = "manual",
+        limit: int = 50,
+    ) -> List[FlashcardStudyCardRead]:
+        if mode == "guided":
+            return self._list_guided(limit=limit)
         now = datetime.now(timezone.utc)
         statement = select(FlashcardProgress).where(FlashcardProgress.due_at <= now).order_by(FlashcardProgress.due_at)
         if entity_type:
@@ -168,3 +176,47 @@ class FlashcardService:
             lexeme=lexeme_info,
             chunk=chunk_info,
         )
+
+    def _list_guided(self, *, limit: int) -> List[FlashcardStudyCardRead]:
+        now = datetime.now(timezone.utc)
+        statement = select(FlashcardProgress).where(FlashcardProgress.due_at <= now).order_by(FlashcardProgress.due_at)
+        rows = self.session.exec(statement).all()
+        if not rows:
+            return []
+        chunk_map: dict[int, list[FlashcardStudyCardRead]] = {}
+        sentence_cards: dict[int, FlashcardStudyCardRead] = {}
+        lexeme_cards: list[FlashcardStudyCardRead] = []
+        sentence_due_map: dict[int, datetime] = {}
+        for row in rows:
+            card = self._build_study_card(row)
+            if row.entity_type == "chunk" and card.chunk:
+                chunk_map.setdefault(card.chunk.sentence_id, []).append(card)
+                current_due = sentence_due_map.get(card.chunk.sentence_id)
+                if current_due is None or card.card.due_at < current_due:
+                    sentence_due_map[card.chunk.sentence_id] = card.card.due_at
+            elif row.entity_type == "sentence" and card.sentence:
+                sentence_cards[card.sentence.id] = card
+                current_due = sentence_due_map.get(card.sentence.id)
+                if current_due is None or card.card.due_at < current_due:
+                    sentence_due_map[card.sentence.id] = card.card.due_at
+            elif row.entity_type == "lexeme":
+                lexeme_cards.append(card)
+        priorities = sorted(sentence_due_map.items(), key=lambda item: item[1])
+        results: list[FlashcardStudyCardRead] = []
+        for sentence_id, _ in priorities:
+            chunk_cards = chunk_map.get(sentence_id, [])
+            if chunk_cards:
+                chunk_cards.sort(key=lambda item: (item.card.due_at, item.chunk.order_index if item.chunk else 0))
+                results.extend(chunk_cards)
+                if len(results) >= limit:
+                    break
+                continue
+            sentence_card = sentence_cards.get(sentence_id)
+            if sentence_card:
+                results.append(sentence_card)
+            if len(results) >= limit:
+                break
+        if not results and lexeme_cards:
+            # 当没有句子/Chunk due 时，退化为返回 lexeme 以免界面空白
+            return lexeme_cards[:limit]
+        return results[:limit]

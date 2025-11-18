@@ -1,15 +1,23 @@
 import apiClient from './http';
 import type { FlashcardStudyCard, FlashcardProgress } from '../types/flashcard';
 
-export async function fetchDueFlashcards(
-  entityType?: 'sentence' | 'chunk' | 'lexeme',
-  limit = 20
-): Promise<FlashcardStudyCard[]> {
+export interface FlashcardQuery {
+  mode?: 'guided' | 'manual';
+  entityType?: 'chunk' | 'sentence' | 'lexeme';
+  limit?: number;
+}
+
+export async function fetchDueFlashcards(options?: FlashcardQuery): Promise<FlashcardStudyCard[]> {
+  const { mode = 'manual', entityType, limit = 20 } = options ?? {};
+  const params: Record<string, unknown> = {
+    mode,
+    limit
+  };
+  if (mode === 'manual' && entityType) {
+    params.entity_type = entityType;
+  }
   const response = await apiClient.get<FlashcardStudyCard[]>('/flashcards', {
-    params: {
-      entity_type: entityType,
-      limit
-    }
+    params
   });
   return response.data;
 }

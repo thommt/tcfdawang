@@ -3,13 +3,13 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
 
-type EntityFilter = 'chunk' | 'sentence' | 'lexeme' | 'all';
+type EntityFilter = 'guided' | 'chunk' | 'sentence' | 'lexeme';
 
 const filterOptions: Array<{ value: EntityFilter; label: string }> = [
+  { value: 'guided', label: '标准流程' },
   { value: 'chunk', label: '记忆块卡片' },
   { value: 'sentence', label: '句子卡片' },
-  { value: 'lexeme', label: '词块卡片' },
-  { value: 'all', label: '全部' }
+  { value: 'lexeme', label: '词块卡片' }
 ];
 
 const reviewScores = [
@@ -28,7 +28,7 @@ export default defineComponent({
     const submitting = ref(false);
     const error = ref('');
     const message = ref('');
-    const entityFilter = ref<EntityFilter>('chunk');
+    const entityFilter = ref<EntityFilter>('guided');
     const currentIndex = ref(0);
 
     const currentCard = computed(() => cards.value[currentIndex.value] ?? null);
@@ -39,8 +39,11 @@ export default defineComponent({
       error.value = '';
       message.value = '';
       try {
-        const filter = entityFilter.value === 'all' ? undefined : entityFilter.value;
-        cards.value = await fetchDueFlashcards(filter);
+        if (entityFilter.value === 'guided') {
+          cards.value = await fetchDueFlashcards({ mode: 'guided' });
+        } else {
+          cards.value = await fetchDueFlashcards({ mode: 'manual', entityType: entityFilter.value });
+        }
         currentIndex.value = 0;
       } catch (err) {
         error.value = '无法加载抽认卡列表';
@@ -53,7 +56,7 @@ export default defineComponent({
     function changeFilter(value: EntityFilter) {
       if (entityFilter.value === value) return;
       entityFilter.value = value;
-      const query = value === 'chunk' ? {} : { type: value };
+      const query = value === 'guided' ? {} : { type: value };
       router.replace({ name: 'flashcards', query });
       loadCards();
     }
@@ -156,10 +159,10 @@ export default defineComponent({
 
     function syncFilterFromRoute() {
       const queryType = route.query.type;
-      if (queryType === 'lexeme' || queryType === 'all' || queryType === 'sentence' || queryType === 'chunk') {
+      if (queryType === 'lexeme' || queryType === 'sentence' || queryType === 'chunk') {
         entityFilter.value = queryType;
       } else {
-        entityFilter.value = 'chunk';
+        entityFilter.value = 'guided';
       }
     }
 

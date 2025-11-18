@@ -22,12 +22,13 @@ router = APIRouter(prefix="/flashcards", tags=["flashcards"])
 @router.get("", response_model=List[FlashcardStudyCardRead])
 def list_flashcards(
     entity_type: Optional[str] = None,
+    mode: str = "guided",
     due_only: bool = True,
     limit: int = 50,
     service: FlashcardService = Depends(get_flashcard_service),
 ) -> List[FlashcardStudyCardRead]:
     if due_only:
-        return service.list_due(entity_type=entity_type, limit=limit)
+        return service.list_due(entity_type=entity_type, mode=mode, limit=limit)
     raise NotImplementedError("Listing all flashcards is not supported yet")
 
 
