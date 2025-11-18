@@ -32,4 +32,11 @@ def run_structure_task(
     return task_service.run_structure_task_for_answer(answer_id)
 
 
+@router.post("/{answer_id}/tasks/translate-sentences", response_model=TaskRead, status_code=201)
+def run_sentence_translation_task(
+    answer_id: int, task_service: TaskService = Depends(get_task_service)
+) -> TaskRead:
+    return task_service.run_sentence_translation_for_answer(answer_id)
+
+
 __all__ = ["router"]

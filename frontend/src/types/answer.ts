@@ -27,7 +27,9 @@ export interface Sentence {
   paragraph_id: number;
   order_index: number;
   text: string;
-  translation?: string | null;
+  translation_en?: string | null;
+  translation_zh?: string | null;
+  difficulty?: string | null;
   extra: Record<string, unknown>;
   created_at: string;
 }

@@ -11,3 +11,8 @@ export async function runStructureTask(answerId: number): Promise<FetchTask> {
   const response = await apiClient.post<FetchTask>(`/answers/${answerId}/tasks/structure`, {});
   return response.data;
 }
+
+export async function runSentenceTranslationTask(answerId: number): Promise<FetchTask> {
+  const response = await apiClient.post<FetchTask>(`/answers/${answerId}/tasks/translate-sentences`, {});
+  return response.data;
+}

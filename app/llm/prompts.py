@@ -47,3 +47,16 @@ STRUCTURE_HUMAN_PROMPT = (
     "题目内容: {question_body}\n"
     "参考答案:\n{answer_text}"
 )
+
+SENTENCE_TRANSLATION_SYSTEM_PROMPT = (
+    "你是TCF Canada 句子翻译与难度评估助手。"
+    "请根据提供的题目背景与句子，给出每句的英文解释、中文翻译，并估算法语难度等级"
+    "(例如 A2/B1/B2/C1)。{format_instructions}"
+)
+
+SENTENCE_TRANSLATION_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容摘要: {question_body}\n"
+    "待处理的句子如下：\n{sentences_block}"
+)

@@ -10,6 +10,7 @@ from app.llm import (
     build_evaluation_chain,
     build_compose_chain,
     build_structure_chain,
+    build_sentence_translation_chain,
 )
 
 
@@ -39,6 +40,9 @@ class QuestionLLMClient:
         self._eval_chain, self._eval_parser = build_evaluation_chain(self._llm)
         self._compose_chain, self._compose_parser = build_compose_chain(self._llm)
         self._structure_chain, self._structure_parser = build_structure_chain(self._llm)
+        self._sentence_translation_chain, self._sentence_translation_parser = build_sentence_translation_chain(
+            self._llm
+        )
 
     def generate_metadata(
         self,
@@ -141,6 +145,31 @@ class QuestionLLMClient:
                     "question_body": question_body,
                     "answer_text": answer_text,
                     "format_instructions": self._structure_parser.get_format_instructions(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
+    def translate_sentences(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        sentences: List[str],
+    ) -> dict:
+        if not sentences:
+            raise LLMError("暂无可翻译的句子")
+        sentences_block = "\n".join(f"{idx+1}. {text}" for idx, text in enumerate(sentences))
+        try:
+            result = self._sentence_translation_chain.invoke(
+                {
+                    "question_type": question_type,
+                    "question_title": question_title,
+                    "question_body": question_body,
+                    "sentences_block": sentences_block,
+                    "format_instructions": self._sentence_translation_parser.get_format_instructions(),
                 }
             )
         except Exception as exc:  # pragma: no cover

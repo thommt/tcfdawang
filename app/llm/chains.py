@@ -13,8 +13,16 @@ from app.llm.prompts import (
     COMPOSE_HUMAN_PROMPT,
     STRUCTURE_SYSTEM_PROMPT,
     STRUCTURE_HUMAN_PROMPT,
+    SENTENCE_TRANSLATION_SYSTEM_PROMPT,
+    SENTENCE_TRANSLATION_HUMAN_PROMPT,
 )
-from app.llm.schemas import QuestionMetadataSchema, EvaluationSchema, ComposeAnswerSchema, StructureResultSchema
+from app.llm.schemas import (
+    QuestionMetadataSchema,
+    EvaluationSchema,
+    ComposeAnswerSchema,
+    StructureResultSchema,
+    SentenceTranslationResultSchema,
+)
 
 
 def build_metadata_chain(llm: BaseChatModel):
@@ -59,6 +67,18 @@ def build_structure_chain(llm: BaseChatModel):
         [
             ("system", STRUCTURE_SYSTEM_PROMPT),
             ("human", STRUCTURE_HUMAN_PROMPT),
+        ]
+    )
+    chain = prompt | llm | parser
+    return chain, parser
+
+
+def build_sentence_translation_chain(llm: BaseChatModel):
+    parser = JsonOutputParser(pydantic_object=SentenceTranslationResultSchema)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SENTENCE_TRANSLATION_SYSTEM_PROMPT),
+            ("human", SENTENCE_TRANSLATION_HUMAN_PROMPT),
         ]
     )
     chain = prompt | llm | parser

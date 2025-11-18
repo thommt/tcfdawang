@@ -38,3 +38,14 @@ class StructureParagraphSchema(BaseModel):
 
 class StructureResultSchema(BaseModel):
     paragraphs: List[StructureParagraphSchema] = Field(default_factory=list)
+
+
+class SentenceTranslationItemSchema(BaseModel):
+    sentence_index: int = Field(..., description="对应句子的序号，从1开始")
+    translation_en: str = Field(..., description="英文解释或翻译")
+    translation_zh: str = Field(..., description="中文解释或翻译")
+    difficulty: Optional[str] = Field(default=None, description="难度标签，例如 A2/B1/B2")
+
+
+class SentenceTranslationResultSchema(BaseModel):
+    translations: List[SentenceTranslationItemSchema] = Field(default_factory=list)

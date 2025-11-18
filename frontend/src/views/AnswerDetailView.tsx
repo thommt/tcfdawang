@@ -3,7 +3,7 @@ import { useRoute, RouterLink, useRouter } from 'vue-router';
 import { fetchAnswerById, fetchAnswerHistory } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
-import { fetchParagraphsByAnswer, runStructureTask } from '../api/paragraphs';
+import { fetchParagraphsByAnswer, runStructureTask, runSentenceTranslationTask } from '../api/paragraphs';
 import type { Answer, AnswerGroup, Paragraph, AnswerHistory } from '../types/answer';
 import type { Question, FetchTask } from '../types/question';
 import { useSessionStore } from '../stores/sessions';
@@ -22,11 +22,15 @@ export default defineComponent({
     const error = ref('');
     const paragraphs = ref<Paragraph[]>([]);
     const structuring = ref(false);
-    const structureError = ref('');
-    const structureMessage = ref('');
+    const structuringError = ref('');
+    const structuringMessage = ref('');
+    const translating = ref(false);
+    const translationError = ref('');
+    const translationMessage = ref('');
     const history = ref<AnswerHistory | null>(null);
     const historyLoading = ref(false);
     const historyError = ref('');
+    const reviewError = ref('');
 
     async function loadParagraphStructure() {
       paragraphs.value = await fetchParagraphsByAnswer(answerId);
@@ -53,8 +57,10 @@ export default defineComponent({
     async function load() {
       loading.value = true;
       error.value = '';
-      structureError.value = '';
-      structureMessage.value = '';
+      structuringError.value = '';
+      structuringMessage.value = '';
+      translationError.value = '';
+      translationMessage.value = '';
       try {
         answer.value = await fetchAnswerById(answerId);
         group.value = await fetchAnswerGroupById(answer.value.answer_group_id);
@@ -83,16 +89,34 @@ export default defineComponent({
     async function rebuildStructure() {
       if (structuring.value) return;
       structuring.value = true;
-      structureError.value = '';
-      structureMessage.value = '';
+      structuringError.value = '';
+      structuringMessage.value = '';
       try {
         await runStructureTask(answerId);
-        structureMessage.value = '结构分析完成';
+        structuringMessage.value = '结构分析完成';
       } catch (err) {
-        structureError.value = '触发结构分析失败';
+        structuringError.value = '触发结构分析失败';
         console.error(err);
       } finally {
         structuring.value = false;
+        await loadParagraphStructure();
+        await loadHistory();
+      }
+    }
+
+    async function translateSentences() {
+      if (translating.value) return;
+      translating.value = true;
+      translationError.value = '';
+      translationMessage.value = '';
+      try {
+        await runSentenceTranslationTask(answerId);
+        translationMessage.value = '句子翻译完成';
+      } catch (err) {
+        translationError.value = '触发句子翻译失败';
+        console.error(err);
+      } finally {
+        translating.value = false;
         await loadParagraphStructure();
         await loadHistory();
       }
@@ -155,12 +179,19 @@ export default defineComponent({
         <section class="paragraphs">
           <header class="paragraphs__header">
             <h4>段落结构</h4>
-            <button type="button" onClick={rebuildStructure} disabled={structuring.value}>
-              {structuring.value ? '分析中...' : paragraphs.value.length ? '重新生成' : '生成结构'}
-            </button>
+            <div class="paragraphs__actions">
+              <button type="button" onClick={translateSentences} disabled={translating.value || paragraphs.value.length === 0}>
+                {translating.value ? '翻译中...' : '生成句子翻译'}
+              </button>
+              <button type="button" onClick={rebuildStructure} disabled={structuring.value}>
+                {structuring.value ? '分析中...' : paragraphs.value.length ? '重新生成结构' : '生成结构'}
+              </button>
+            </div>
           </header>
-          {structureError.value && <p class="error">{structureError.value}</p>}
-          {structureMessage.value && <p class="success">{structureMessage.value}</p>}
+          {structuringError.value && <p class="error">{structuringError.value}</p>}
+          {structuringMessage.value && <p class="success">{structuringMessage.value}</p>}
+          {translationError.value && <p class="error">{translationError.value}</p>}
+          {translationMessage.value && <p class="success">{translationMessage.value}</p>}
           {latestStructureTask.value && (
             <p class="structure-task-meta">
               最近一次任务：#{latestStructureTask.value.id} · {latestStructureTask.value.status} ·
@@ -183,8 +214,22 @@ export default defineComponent({
                 <ol>
                   {paragraph.sentences.map((sentence) => (
                     <li key={sentence.id}>
-                      {sentence.text}
-                      {sentence.translation && <em>（{sentence.translation}）</em>}
+                      <p>{sentence.text}</p>
+                      {(sentence.translation_en || sentence.translation_zh) && (
+                        <p class="sentence-translation">
+                          {sentence.translation_en && (
+                            <span>
+                              EN: {sentence.translation_en}
+                            </span>
+                          )}
+                          {sentence.translation_zh && (
+                            <span style="margin-left:0.5rem;">
+                              中: {sentence.translation_zh}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {sentence.difficulty && <small>难度：{sentence.difficulty}</small>}
                     </li>
                   ))}
                 </ol>
@@ -309,4 +354,3 @@ export default defineComponent({
     );
   },
 });
-    const reviewError = ref('');

@@ -137,3 +137,16 @@ def test_structure_task_failure_keeps_previous_paragraphs(client: TestClient, se
     ).all()
     assert len(paragraphs) == 1
     assert paragraphs[0].summary == "Summary"
+
+
+def test_sentence_translation_task(client: TestClient, session: Session) -> None:
+    answer_id = _create_answer(session)
+    response = client.post(f"/answers/{answer_id}/tasks/translate-sentences")
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "succeeded"
+    sentence = session.exec(select(Sentence)).first()
+    assert sentence is not None
+    assert sentence.translation_en == "Hi"
+    assert sentence.translation_zh == "你好"
+    assert sentence.difficulty == "B1"

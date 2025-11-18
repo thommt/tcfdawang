@@ -250,3 +250,78 @@ class TaskService:
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="结构化任务处理失败") from exc
         return TaskRead.model_validate(task)
+
+    def run_sentence_translation_for_answer(self, answer_id: int) -> TaskRead:
+        answer = self.session.get(AnswerSchema, answer_id)
+        if not answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        group = self.session.get(AnswerGroupSchema, answer.answer_group_id)
+        question = self.session.get(Question, group.question_id) if group else None
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        task = Task(
+            type="sentence_translate",
+            status="pending",
+            payload={"answer_id": answer_id},
+            session_id=None,
+            answer_id=answer_id,
+        )
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        try:
+            sentence_statement = (
+                select(Sentence, Paragraph.order_index)
+                .join(Paragraph, Paragraph.id == Sentence.paragraph_id)
+                .where(Paragraph.answer_id == answer_id)
+                .order_by(Paragraph.order_index, Sentence.order_index)
+            )
+            rows = self.session.exec(sentence_statement).all()
+            if not rows:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No sentences to translate")
+            sentences = [row[0] for row in rows]
+            texts = [sentence.text for sentence in sentences]
+            translation_result = self.llm_client.translate_sentences(
+                question_type=question.type,
+                question_title=question.title,
+                question_body=question.body,
+                sentences=texts,
+            )
+            translations = translation_result.get("translations") or []
+            updated = 0
+            for item in translations:
+                idx = item.get("sentence_index")
+                if not isinstance(idx, int) or idx < 1 or idx > len(sentences):
+                    continue
+                sentence = sentences[idx - 1]
+                sentence.translation_en = item.get("translation_en") or sentence.translation_en
+                sentence.translation_zh = item.get("translation_zh") or sentence.translation_zh
+                sentence.difficulty = item.get("difficulty") or sentence.difficulty
+                self.session.add(sentence)
+                updated += 1
+            self.session.commit()
+            conversation = LLMConversation(
+                session_id=None,
+                task_id=task.id,
+                purpose="sentence_translation",
+                messages={"sentences": texts},
+                result=translation_result,
+                model_name=getattr(self.llm_client, "model", None),
+                latency_ms=None,
+            )
+            self.session.add(conversation)
+            task.status = "succeeded"
+            task.result_summary = {"updated_count": updated}
+            task.updated_at = datetime.now(timezone.utc)
+            task.error_message = None
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except LLMError as exc:
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return TaskRead.model_validate(task)
