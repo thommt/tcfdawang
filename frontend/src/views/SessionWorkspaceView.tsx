@@ -214,8 +214,105 @@ export default defineComponent({
       loadData();
     });
 
-            </ul>
-          )}
+    return () => (
+      <section class="session-workspace">
+        <RouterLink class="link" to={`/questions/${question.value?.id ?? ''}`}>
+          ← 返回题目详情
+        </RouterLink>
+        {question.value && (
+          <header class="question-meta">
+            <h2>{question.value.title}</h2>
+            <p>
+              {question.value.year}/{question.value.month} · {question.value.type}
+            </p>
+          </header>
+        )}
+        {isReviewSession.value && (
+          <section class="review-context">
+            <h3>复习模式</h3>
+            <p>此 Session 基于已有答案生成，请在原答案基础上优化、扩展并记录新的思路。</p>
+            {reviewSourceLoading.value && <p>源答案加载中...</p>}
+            {reviewSourceError.value && <p class="error">{reviewSourceError.value}</p>}
+            {reviewSourceAnswer.value && (
+              <article class="source-answer-card">
+                <header>
+                  <strong>原答案：{reviewSourceAnswer.value.title}</strong>
+                  <RouterLink to={`/answers/${reviewSourceAnswer.value.id}`} class="link">
+                    查看详情
+                  </RouterLink>
+                </header>
+                <p>
+                  版本：V{reviewSourceAnswer.value.version_index} · 创建时间：
+                  {new Date(reviewSourceAnswer.value.created_at).toLocaleString()}
+                </p>
+                {reviewComparison.value && (
+                  <ul class="comparison-stats">
+                    <li>
+                      词数：{reviewComparison.value.currentWords}（当前） / {reviewComparison.value.sourceWords}（原文） ·
+                      差值 {reviewComparison.value.diffWords >= 0 ? '+' : ''}
+                      {reviewComparison.value.diffWords}
+                    </li>
+                    <li>
+                      字符：{reviewComparison.value.currentChars}（当前） / {reviewComparison.value.sourceChars}（原文） ·
+                      差值 {reviewComparison.value.diffChars >= 0 ? '+' : ''}
+                      {reviewComparison.value.diffChars}
+                    </li>
+                  </ul>
+                )}
+                <details>
+                  <summary>展开原文</summary>
+                  <pre>{reviewSourceAnswer.value.text}</pre>
+                </details>
+              </article>
+            )}
+            <div class="review-notes">
+              <label>
+                <span>本次改进要点</span>
+                <textarea
+                  rows={4}
+                  value={reviewNotes.value}
+                  onInput={(event) => {
+                    reviewNotes.value = (event.target as HTMLTextAreaElement).value;
+                  }}
+                  placeholder="记录本次复习相较原答案的改进，例如新增论据、调整结构、强化语法点。"
+                ></textarea>
+              </label>
+              <div class="actions">
+                <button type="button" onClick={saveReviewNote} disabled={savingReviewNotes.value}>
+                  {savingReviewNotes.value ? '保存中...' : '保存改进要点'}
+                </button>
+                {reviewNoteMessage.value && <p class="hint">{reviewNoteMessage.value}</p>}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section class="workspace">
+          <label>
+            <span>草稿</span>
+            <textarea
+              rows={8}
+              value={draft.value}
+              onInput={(event) => {
+                draft.value = (event.target as HTMLTextAreaElement).value;
+              }}
+              placeholder="在此输入你的答案草稿"
+            ></textarea>
+          </label>
+          <div class="actions">
+            <button onClick={saveDraft} disabled={saving.value || sessionCompleted.value}>
+              {saving.value ? '保存中...' : '保存草稿'}
+            </button>
+            <button onClick={evaluate} disabled={evalRunning.value || sessionCompleted.value}>
+              {evalRunning.value ? '评估中...' : '请求评估'}
+            </button>
+            <button onClick={composeAnswer} disabled={composing.value || sessionCompleted.value}>
+              {composing.value ? '生成中...' : 'LLM 生成答案'}
+            </button>
+            <button type="button" onClick={openFinalize} disabled={sessionCompleted.value}>
+              {sessionCompleted.value ? '已完成' : '完成 Session'}
+            </button>
+          </div>
         </section>
         <section class="history-panel">
           <h3>任务列表</h3>
