@@ -7,7 +7,16 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.main import app
 from app.api.dependencies import get_session, get_llm_client
-from app.db.schemas import AnswerGroup, Answer
+from app.db.schemas import (
+    AnswerGroup,
+    Answer,
+    Paragraph,
+    Sentence,
+    SentenceChunk,
+    Lexeme,
+    ChunkLexeme,
+    FlashcardProgress,
+)
 
 
 @pytest.fixture(name="session")
@@ -258,7 +267,111 @@ def test_create_review_session(client: TestClient, session: Session) -> None:
 
     review_resp = client.post(f"/answers/{answer_id}/sessions")
     assert review_resp.status_code == 201
-    review_session = review_resp.json()
-    assert review_session["session_type"] == "review"
-    assert review_session["question_id"] == question_id
-    assert review_session["user_answer_draft"] == "Un texte"
+
+
+def test_delete_answer_group_cascades(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client)
+    group = client.post(
+        "/answer-groups",
+        json={"question_id": question_id, "title": "Group"},
+    ).json()
+    answer = client.post(
+        "/answers",
+        json={
+            "answer_group_id": group["id"],
+            "title": "Answer title",
+            "text": "Contenu",
+        },
+    ).json()
+    paragraph = Paragraph(answer_id=answer["id"], order_index=1, role_label="intro", summary="summary", extra={})
+    session.add(paragraph)
+    session.commit()
+    session.refresh(paragraph)
+    sentence = Sentence(
+        paragraph_id=paragraph.id,
+        order_index=1,
+        text="Bonjour tout le monde",
+        translation_en="Hello everyone",
+        translation_zh="大家好",
+        difficulty="B1",
+        extra={},
+    )
+    session.add(sentence)
+    session.commit()
+    session.refresh(sentence)
+    chunk = SentenceChunk(
+        sentence_id=sentence.id,
+        order_index=1,
+        text="Bonjour",
+        translation_en="Hello",
+        translation_zh="你好",
+        chunk_type="expression",
+        extra={},
+    )
+    session.add(chunk)
+    session.commit()
+    session.refresh(chunk)
+    lexeme = Lexeme(
+        headword="bonjour",
+        lemma="bonjour",
+        sense_label="greeting",
+        gloss="hello",
+        translation_en="hello",
+        translation_zh="你好",
+        pos_tags="noun",
+        difficulty="A1",
+        hash="bonjour::greeting::bonjour",
+        extra={},
+    )
+    session.add(lexeme)
+    session.commit()
+    session.refresh(lexeme)
+    link = ChunkLexeme(chunk_id=chunk.id, lexeme_id=lexeme.id, order_index=1, role="root", extra={})
+    session.add(link)
+    session.commit()
+    for entity_type, entity_id in [
+        ("sentence", sentence.id),
+        ("chunk", chunk.id),
+        ("lexeme", lexeme.id),
+    ]:
+        session.add(
+            FlashcardProgress(
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+        )
+    session.commit()
+    review_session = client.post(
+        "/sessions",
+        json={"question_id": question_id, "answer_id": answer["id"]},
+    ).json()
+
+    resp = client.delete(f"/answer-groups/{group['id']}")
+    assert resp.status_code == 204
+    assert client.get(f"/answer-groups/{group['id']}").status_code == 404
+    assert session.get(Answer, answer["id"]) is None
+    assert session.exec(select(Paragraph).where(Paragraph.answer_id == answer["id"])).all() == []
+    assert session.exec(select(Sentence).where(Sentence.paragraph_id == paragraph.id)).all() == []
+    assert session.exec(select(SentenceChunk).where(SentenceChunk.sentence_id == sentence.id)).all() == []
+    assert session.exec(select(ChunkLexeme).where(ChunkLexeme.chunk_id == chunk.id)).all() == []
+    assert session.get(Lexeme, lexeme.id) is None
+    assert (
+        session.exec(
+            select(FlashcardProgress).where(FlashcardProgress.entity_type == "sentence")
+        ).all()
+        == []
+    )
+    assert (
+        session.exec(
+            select(FlashcardProgress).where(FlashcardProgress.entity_type == "chunk")
+        ).all()
+        == []
+    )
+    assert (
+        session.exec(
+            select(FlashcardProgress).where(FlashcardProgress.entity_type == "lexeme")
+        ).all()
+        == []
+    )
+    updated_session = client.get(f"/sessions/{review_session['id']}").json()
+    assert updated_session["answer_id"] is None

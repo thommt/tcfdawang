@@ -14,6 +14,12 @@ from app.db.schemas import (
     Session as SessionSchema,
     Task,
     LLMConversation,
+    Paragraph as ParagraphSchema,
+    Sentence as SentenceSchema,
+    SentenceChunk,
+    ChunkLexeme,
+    Lexeme,
+    FlashcardProgress,
 )
 from app.models.answer import (
     AnswerCreate,
@@ -148,6 +154,17 @@ class SessionService:
         )
         groups = self.session.exec(statement).all()
         return [self._to_answer_group_read(group, include_answers=True) for group in groups]
+
+    def delete_answer_group(self, group_id: int) -> None:
+        group = self.session.get(AnswerGroupSchema, group_id)
+        if not group:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer group not found")
+        answers = self.session.exec(select(AnswerSchema).where(AnswerSchema.answer_group_id == group_id)).all()
+        for answer in answers:
+            self._delete_answer_dependencies(answer.id)
+            self.session.delete(answer)
+        self.session.delete(group)
+        self.session.commit()
 
     # Answer operations
     def create_answer(self, data: AnswerCreate) -> AnswerRead:
@@ -299,6 +316,86 @@ class SessionService:
     def _ensure_answer_exists(self, answer_id: int) -> None:
         if not self.session.get(AnswerSchema, answer_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+
+    def _delete_answer_dependencies(self, answer_id: int | None) -> None:
+        if not answer_id:
+            return
+        paragraphs = self.session.exec(
+            select(ParagraphSchema).where(ParagraphSchema.answer_id == answer_id)
+        ).all()
+        for paragraph in paragraphs:
+            sentences = self.session.exec(
+                select(SentenceSchema).where(SentenceSchema.paragraph_id == paragraph.id)
+            ).all()
+            for sentence in sentences:
+                self._delete_sentence_with_chunks(sentence)
+                self.session.delete(sentence)
+            self.session.delete(paragraph)
+        sessions = self.session.exec(
+            select(SessionSchema).where(SessionSchema.answer_id == answer_id)
+        ).all()
+        for session in sessions:
+            session.answer_id = None
+            session.updated_at = datetime.now(timezone.utc)
+            self.session.add(session)
+        tasks = self.session.exec(select(Task).where(Task.answer_id == answer_id)).all()
+        for task in tasks:
+            conversation = self.session.exec(
+                select(LLMConversation).where(LLMConversation.task_id == task.id)
+            ).first()
+            if conversation:
+                self.session.delete(conversation)
+            self.session.delete(task)
+
+    def _delete_sentence_with_chunks(self, sentence: SentenceSchema) -> None:
+        if not sentence.id:
+            return
+        self._delete_flashcards_for_entities("sentence", [sentence.id])
+        chunks = self.session.exec(
+            select(SentenceChunk).where(SentenceChunk.sentence_id == sentence.id)
+        ).all()
+        if not chunks:
+            return
+        chunk_ids = [chunk.id for chunk in chunks if chunk.id is not None]
+        if chunk_ids:
+            self._delete_flashcards_for_entities("chunk", chunk_ids)
+            links = self.session.exec(
+                select(ChunkLexeme).where(ChunkLexeme.chunk_id.in_(chunk_ids))
+            ).all()
+            lexeme_ids: set[int] = set()
+            for link in links:
+                if link.lexeme_id:
+                    lexeme_ids.add(link.lexeme_id)
+                self.session.delete(link)
+            for chunk in chunks:
+                self.session.delete(chunk)
+            for lexeme_id in lexeme_ids:
+                self._cleanup_lexeme_if_orphan(lexeme_id)
+
+    def _cleanup_lexeme_if_orphan(self, lexeme_id: int | None) -> None:
+        if not lexeme_id:
+            return
+        linked = self.session.exec(
+            select(ChunkLexeme.id).where(ChunkLexeme.lexeme_id == lexeme_id)
+        ).first()
+        if linked:
+            return
+        self._delete_flashcards_for_entities("lexeme", [lexeme_id])
+        lexeme = self.session.get(Lexeme, lexeme_id)
+        if lexeme:
+            self.session.delete(lexeme)
+
+    def _delete_flashcards_for_entities(self, entity_type: str, entity_ids: list[int | None]) -> None:
+        valid_ids = [entity_id for entity_id in entity_ids if entity_id is not None]
+        if not valid_ids:
+            return
+        rows = self.session.exec(
+            select(FlashcardProgress)
+            .where(FlashcardProgress.entity_type == entity_type)
+            .where(FlashcardProgress.entity_id.in_(valid_ids))
+        ).all()
+        for row in rows:
+            self.session.delete(row)
 
     def _get_session_entity(self, session_id: int) -> SessionSchema:
         entity = self.session.get(SessionSchema, session_id)

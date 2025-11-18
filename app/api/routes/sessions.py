@@ -101,6 +101,11 @@ def list_answer_groups(question_id: int, service: SessionService = Depends(get_s
     return service.list_answer_groups(question_id)
 
 
+@answer_group_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_answer_group(group_id: int, service: SessionService = Depends(get_session_service)) -> None:
+    service.delete_answer_group(group_id)
+
+
 answers_router = APIRouter(prefix="/answers", tags=["answers"])
 
 
