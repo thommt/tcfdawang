@@ -378,9 +378,24 @@ export default defineComponent({
           </button>
           {showDebug.value && session.value && (
             <div class="debug-actions">
-              <button onClick={() => sessionStore.triggerCompare(session.value!.id)}>触发对比</button>
-              <button onClick={() => sessionStore.triggerGapHighlight(session.value!.id)}>GapHighlighter</button>
-              <button onClick={() => sessionStore.triggerRefine(session.value!.id)}>生成精炼范文</button>
+              <p>当前 phase: {currentPhase.value}</p>
+              <div class="debug-buttons">
+                <button onClick={() => sessionStore.triggerEval(session.value!.id)}>手动评估</button>
+                <button onClick={() => sessionStore.triggerCompare(session.value!.id)}>对比答案组</button>
+                <button onClick={() => sessionStore.triggerGapHighlight(session.value!.id)}>GapHighlighter</button>
+                <button onClick={() => sessionStore.triggerRefine(session.value!.id)}>Refine Answer</button>
+              </div>
+              <div class="debug-info">
+                <h4>最近任务</h4>
+                <ul>
+                  {historyTasks.value.slice(0, 5).map((task) => (
+                    <li key={task.id}>
+                      #{task.id} · {task.type} · {task.status}
+                      {task.error_message && <span class="error"> · {task.error_message}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           )}
         </section>
@@ -525,3 +540,4 @@ export default defineComponent({
     );
   },
 });
+    const historyTasks = computed(() => sessionHistory.value?.tasks ?? []);
