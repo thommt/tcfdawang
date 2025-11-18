@@ -144,7 +144,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 4. Question 标签使用 `QuestionTag` 表维护，便于按标签过滤；导入/编辑题目时同步更新该表。
 
 ### 5.8 题目抓取（Web UI）
-1. 在题目管理界面提供“抓取题目”对话框，允许用户输入一个或多个 URL（例如若干站点的口语题页面）。前端将 URL 列表提交给后端 API（`POST /api/questions/fetch`），后端基于配置化抓取器（如 Seikou/Tanpaku）执行解析。
+1. 在题目管理界面提供“抓取题目”对话框，允许用户输入一个或多个 URL（例如若干站点的口语题页面）。前端将 URL 列表提交给后端 API（`POST /questions/fetch`），后端基于配置化抓取器（如 Seikou/Tanpaku）执行解析。
 2. 抓取规则：
    - 识别 “Tâche / Partie / Sujet” 层级，组合生成唯一 slug（例：`202510.T3.P1S2`）。
    - 自动解析页面标题中的月份/年份；若缺失可由用户通过界面补充。
@@ -152,7 +152,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 3. 提交抓取任务后，后端创建 `Task(type=fetch_questions)`，异步抓取并将解析结果暂存（可写入临时表或直接生成待确认列表）。
 4. 前端提供“抓取结果预览”表格：显示抓取出来的题目字段（来源、日期、Tache、Partie、Sujet、文本等），允许用户逐条编辑/确认或删除。
 5. 用户确认后，调用 `POST /questions/import` 或专用 API，将选定题目写入数据库；利用 `(source, year, month, suite, number)` 作为唯一键决定更新/创建，slug 仅用于展示。
-6. 新增 `POST /api/questions/fetch/import`：按 task_id 批量写入抓取结果，默认导入所有结果；如遇重复题目或未找到任务则返回可解析的错误。
+6. 新增 `POST /questions/fetch/import`：按 task_id 批量写入抓取结果，默认导入所有结果；如遇重复题目或未找到任务则返回可解析的错误。
 7. 错误处理：对请求失败/解析异常的 URL 在 UI 上显示错误信息，并允许重新抓取；所有抓取过程记录日志。
 7. **抓取器抽象与配置**：
    - 定义 `BaseQuestionFetcher` 接口（输入：URL + 配置；输出：标准化的题目信息），具体站点可实现各自的解析逻辑。
@@ -215,8 +215,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - `POST /answers/{id}/structure-graph` 触发可选的篇章图分析任务
 - `GET /flashcards/due`、`POST /flashcards/{id}/result`
 - `GET /settings/user-profile`、`PUT /settings/user-profile`（全局考生人设配置，供 T2 生成使用）
-- `POST /api/questions/fetch`：根据 URL 列表触发抓取任务，返回任务信息+结果预览
-- `GET /api/questions/fetch/results`：根据 task_id 获取抓取结果列表
+- `POST /questions/fetch`：根据 URL 列表触发抓取任务，返回任务信息+结果预览
+- `GET /questions/fetch/results`：根据 task_id 获取抓取结果列表
 - `GET /tasks`、`GET /tasks/{id}`：查询后台任务状态；`POST /tasks/{id}/retry` 重试单个任务；`DELETE /tasks/{id}` 取消任务；`POST /answers/{id}/tasks` 以任务类型为参数补充未执行步骤
 - `GET /favorites`、`POST /favorites`、`DELETE /favorites/{id}`：收藏列表及操作
 - `GET /tags`（可选预设标签）、`GET /questions?tag=xxx`：基于 `QuestionTag` 表过滤；题目 CRUD 中需支持标签编辑

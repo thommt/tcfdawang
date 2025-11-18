@@ -12,6 +12,7 @@ from app.llm import (
     build_structure_chain,
     build_sentence_translation_chain,
     build_phrase_split_chain,
+    build_phrase_split_quality_chain,
 )
 
 
@@ -45,6 +46,7 @@ class QuestionLLMClient:
             self._llm
         )
         self._phrase_split_chain, self._phrase_split_parser = build_phrase_split_chain(self._llm)
+        self._phrase_quality_chain, self._phrase_quality_parser = build_phrase_split_quality_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -185,9 +187,14 @@ class QuestionLLMClient:
         question_title: str,
         question_body: str,
         sentence_text: str,
+        known_issues: list[str] | None = None,
     ) -> dict:
         if not sentence_text:
             raise LLMError("暂无可拆分的句子")
+        if not known_issues:
+            issues_block = "无"
+        else:
+            issues_block = "上次拆分存在以下问题：\n" + "\n".join(f"- {issue}" for issue in known_issues)
         try:
             result = self._phrase_split_chain.invoke(
                 {
@@ -195,9 +202,37 @@ class QuestionLLMClient:
                     "question_title": question_title,
                     "question_body": question_body,
                     "sentence_text": sentence_text,
+                    "known_issues": issues_block,
                     "format_instructions": self._phrase_split_parser.get_format_instructions(),
                 }
             )
         except Exception as exc:  # pragma: no cover
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
+    def assess_phrase_split_quality(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        sentence_text: str,
+        phrases: list[dict],
+    ) -> dict:
+        phrases_block = "\n".join(
+            f"- {item.get('phrase') or item.get('lemma') or ''}".strip() for item in phrases
+        )
+        try:
+            result = self._phrase_quality_chain.invoke(
+                {
+                    "question_type": question_type,
+                    "question_title": question_title,
+                    "question_body": question_body,
+                    "sentence_text": sentence_text,
+                    "phrases_block": phrases_block,
+                    "format_instructions": self._phrase_quality_parser.get_format_instructions(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查拆分质量") from exc
         return result

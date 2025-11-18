@@ -76,6 +76,9 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
                 ]
             }
 
+        def assess_phrase_split_quality(self, **kwargs):
+            return {"is_valid": True, "issues": []}
+
     app.dependency_overrides[get_session] = override_get_session
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     test_client = TestClient(app)

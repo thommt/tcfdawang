@@ -67,3 +67,8 @@ class PhraseSplitItemSchema(BaseModel):
 
 class PhraseSplitResultSchema(BaseModel):
     phrases: List[PhraseSplitItemSchema] = Field(default_factory=list)
+
+
+class PhraseSplitQualitySchema(BaseModel):
+    is_valid: bool = Field(..., description="是否通过质检")
+    issues: List[str] = Field(default_factory=list, description="发现的问题列表")

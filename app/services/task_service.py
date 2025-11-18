@@ -383,20 +383,46 @@ class TaskService:
         self.session.add(task)
         self.session.commit()
         self.session.refresh(task)
+        sentence_extra = dict(sentence.extra or {})
+        known_issues: list[str] = sentence_extra.get("split_issues") or []
+        existing_links = self.session.exec(
+            select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
+        ).all()
+        orphan_candidates = {link.lexeme_id for link in existing_links if link.lexeme_id}
+        for link in existing_links:
+            self.session.delete(link)
+        self.session.commit()
+        self._cleanup_orphan_lexemes(orphan_candidates)
         try:
             split_result = self.llm_client.split_sentence(
                 question_type=question.type,
                 question_title=question.title,
                 question_body=question.body,
                 sentence_text=sentence.text,
+                known_issues=known_issues,
             )
             phrases = split_result.get("phrases") or []
-            existing_links = self.session.exec(
-                select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
-            ).all()
-            orphan_candidates = {link.lexeme_id for link in existing_links if link.lexeme_id}
-            for link in existing_links:
-                self.session.delete(link)
+            if phrases:
+                quality = self.llm_client.assess_phrase_split_quality(
+                    question_type=question.type,
+                    question_title=question.title,
+                    question_body=question.body,
+                    sentence_text=sentence.text,
+                    phrases=phrases,
+                )
+                if quality and not quality.get("is_valid", True):
+                    issues = quality.get("issues") or []
+                    detail = "拆分质量不足"
+                    if issues:
+                        detail = f"拆分质量不足：{'；'.join(issues)}"
+                        sentence_extra["split_issues"] = issues
+                        sentence.extra = sentence_extra
+                        self.session.add(sentence)
+                        self.session.commit()
+                    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+            sentence_extra.pop("split_issues", None)
+            sentence.extra = sentence_extra
+            self.session.add(sentence)
             self.session.commit()
             created = 0
             lexeme_ids_for_cards: Set[int] = set()
@@ -439,7 +465,6 @@ class TaskService:
             self.session.commit()
             for lexeme_id in lexeme_ids_for_cards:
                 self._ensure_lexeme_flashcard(lexeme_id)
-            self._cleanup_orphan_lexemes(orphan_candidates)
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,

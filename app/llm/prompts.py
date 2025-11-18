@@ -67,6 +67,7 @@ PHRASE_SPLIT_SYSTEM_PROMPT = (
     "每个“记忆小块”必须保留句子中所有语法不可或缺的词：冠词、介词、代词、否定成分等都要包含在内，"
     "请尽量让拆分后的“记忆小块”覆盖整个句子，确保用这些生成的“记忆小块”组合后几乎能还原原句。"
     "不要限制一个“记忆小块”的长度，也不要限制生成后的“记忆小块”的数量，但要跳过非常简单、无记忆价值的词或词组。"
+    "如果上次拆分反馈指出了问题（例如缺失冠词、覆盖不足、碎片化等），本次必须针对这些问题进行修正并避免重复。"
     "每个“记忆小块”需包含 lemma、中文 sense_label、英/中文翻译、简短 gloss、词性(pos) 与可选难度等级。{format_instructions}"
 )
 
@@ -74,5 +75,20 @@ PHRASE_SPLIT_HUMAN_PROMPT = (
     "题目类型: {question_type}\n"
     "题目标题: {question_title}\n"
     "题目内容摘要: {question_body}\n"
-    "目标句子: {sentence_text}"
+    "目标句子: {sentence_text}\n"
+    "上次拆分反馈: {known_issues}"
+)
+
+PHRASE_SPLIT_QUALITY_SYSTEM_PROMPT = (
+    "你是TCF Canada 句子拆分质检助手。请根据原句与拆分结果，判断词块是否完整、覆盖是否充分、是否保留必要的语法成分，以及拆分出的词块是否与翻译对应。"
+    "如果词块遗漏冠词/介词、覆盖率明显不足、出现大量单词级碎片、词块与翻译不对应，应判定为不合格。"
+    "输出 JSON，包含 is_valid(bool) 与 issues(字符串列表)。{format_instructions}"
+)
+
+PHRASE_SPLIT_QUALITY_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容摘要: {question_body}\n"
+    "原句: {sentence_text}\n"
+    "拆分词块:\n{phrases_block}"
 )
