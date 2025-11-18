@@ -87,8 +87,13 @@ export default defineComponent({
       }
     }
 
-    function goToFlashcards(type: 'sentence' | 'lexeme') {
-      const query = type === 'sentence' ? { type: 'sentence' } : { type: 'lexeme' };
+    function goToFlashcards(type: 'sentence' | 'chunk' | 'lexeme') {
+      const query =
+        type === 'sentence'
+          ? { type: 'sentence' }
+          : type === 'chunk'
+          ? { type: 'chunk' }
+          : { type: 'lexeme' };
       router.push({ name: 'flashcards', query });
     }
 
@@ -241,6 +246,9 @@ export default defineComponent({
             <div class="flashcard-shortcuts">
               <button type="button" onClick={() => goToFlashcards('sentence')}>
                 复习句子抽认卡
+              </button>
+              <button type="button" onClick={() => goToFlashcards('chunk')}>
+                复习记忆块抽认卡
               </button>
               <button type="button" onClick={() => goToFlashcards('lexeme')}>
                 复习词块抽认卡

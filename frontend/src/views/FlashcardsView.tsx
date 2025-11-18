@@ -3,9 +3,10 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
 
-type EntityFilter = 'sentence' | 'lexeme' | 'all';
+type EntityFilter = 'chunk' | 'sentence' | 'lexeme' | 'all';
 
 const filterOptions: Array<{ value: EntityFilter; label: string }> = [
+  { value: 'chunk', label: '记忆块卡片' },
   { value: 'sentence', label: '句子卡片' },
   { value: 'lexeme', label: '词块卡片' },
   { value: 'all', label: '全部' }
@@ -27,7 +28,7 @@ export default defineComponent({
     const submitting = ref(false);
     const error = ref('');
     const message = ref('');
-    const entityFilter = ref<EntityFilter>('sentence');
+    const entityFilter = ref<EntityFilter>('chunk');
     const currentIndex = ref(0);
 
     const currentCard = computed(() => cards.value[currentIndex.value] ?? null);
@@ -52,7 +53,7 @@ export default defineComponent({
     function changeFilter(value: EntityFilter) {
       if (entityFilter.value === value) return;
       entityFilter.value = value;
-      const query = value === 'sentence' ? {} : { type: value };
+      const query = value === 'chunk' ? {} : { type: value };
       router.replace({ name: 'flashcards', query });
       loadCards();
     }
@@ -121,12 +122,44 @@ export default defineComponent({
       );
     }
 
+    function renderChunkCard() {
+      const card = currentCard.value;
+      if (!card?.chunk) return null;
+      const { chunk } = card;
+      const sentence = chunk.sentence;
+      return (
+        <div class="card-section">
+          <h3>记忆块卡片</h3>
+          <p class="card__text">
+            #{chunk.order_index} · {chunk.text}
+          </p>
+          <p class="card__translation">英文：{chunk.translation_en ?? '—'}</p>
+          <p class="card__translation">中文：{chunk.translation_zh ?? '—'}</p>
+          <p class="card__meta">
+            类型：{chunk.chunk_type ?? '未标注'}
+            {sentence && (
+              <>
+                {' · '}
+                来源句子：{sentence.text}
+                {sentence.answer_id && (
+                  <>
+                    {' · '}
+                    <RouterLink to={`/answers/${sentence.answer_id}`}>查看答案</RouterLink>
+                  </>
+                )}
+              </>
+            )}
+          </p>
+        </div>
+      );
+    }
+
     function syncFilterFromRoute() {
       const queryType = route.query.type;
-      if (queryType === 'lexeme' || queryType === 'all' || queryType === 'sentence') {
+      if (queryType === 'lexeme' || queryType === 'all' || queryType === 'sentence' || queryType === 'chunk') {
         entityFilter.value = queryType;
       } else {
-        entityFilter.value = 'sentence';
+        entityFilter.value = 'chunk';
       }
     }
 
@@ -180,6 +213,7 @@ export default defineComponent({
               </span>
               <span>下次复习：{new Date(currentCard.value.card.due_at).toLocaleString()}</span>
             </div>
+            {renderChunkCard()}
             {renderSentenceCard()}
             {renderLexemeCard()}
             <footer class="card__actions">

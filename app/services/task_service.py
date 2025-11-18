@@ -18,6 +18,7 @@ from app.db.schemas import (
     Lexeme,
     SentenceChunk,
     ChunkLexeme,
+    FlashcardProgress,
 )
 from app.models.fetch_task import TaskRead
 from app.models.flashcard import FlashcardProgressCreate
@@ -165,6 +166,11 @@ class TaskService:
             FlashcardProgressCreate(entity_type="lexeme", entity_id=lexeme_id)
         )
 
+    def _ensure_chunk_flashcard(self, chunk_id: int) -> None:
+        self.flashcard_service.get_or_create(
+            FlashcardProgressCreate(entity_type="chunk", entity_id=chunk_id)
+        )
+
     def _cleanup_orphan_lexemes(self, candidate_ids: Set[int]) -> None:
         if not candidate_ids:
             return
@@ -187,6 +193,7 @@ class TaskService:
             return
         chunk_ids = [chunk.id for chunk in chunks if chunk.id is not None]
         orphan_candidates = self._clear_chunk_lexemes(chunk_ids)
+        self._remove_chunk_flashcards(chunk_ids)
         for chunk in chunks:
             self.session.delete(chunk)
         self.session.commit()
@@ -205,6 +212,17 @@ class TaskService:
             self.session.delete(link)
         self.session.commit()
         return orphan_candidates
+
+    def _remove_chunk_flashcards(self, chunk_ids: list[int]) -> None:
+        if not chunk_ids:
+            return
+        rows = self.session.exec(
+            select(FlashcardProgress)
+            .where(FlashcardProgress.entity_type == "chunk")
+            .where(FlashcardProgress.entity_id.in_(chunk_ids))
+        ).all()
+        for row in rows:
+            self.session.delete(row)
 
     def _get_task(self, task_id: int) -> Task:
         task = self.session.get(Task, task_id)
@@ -450,6 +468,7 @@ class TaskService:
                 self.session.add(conversation)
                 self.session.commit()
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Chunk 质检失败；" + "；".join(issues))
+            new_chunk_ids: list[int] = []
             for item in chunks:
                 chunk = SentenceChunk(
                     sentence_id=sentence_id,
@@ -461,11 +480,16 @@ class TaskService:
                     extra={},
                 )
                 self.session.add(chunk)
+                self.session.flush()
+                if chunk.id is not None:
+                    new_chunk_ids.append(chunk.id)
             sentence_extra.pop("split_issues", None)
             sentence_extra.pop("chunk_issues", None)
             sentence.extra = sentence_extra
             self.session.add(sentence)
             self.session.commit()
+            for chunk_id in new_chunk_ids:
+                self._ensure_chunk_flashcard(chunk_id)
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,

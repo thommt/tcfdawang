@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
-from app.db.schemas import Question, AnswerGroup, Answer, Paragraph, Sentence
+from app.db.schemas import Question, AnswerGroup, Answer, Paragraph, Sentence, SentenceChunk
 from app.main import app
 from app.api.dependencies import get_session
 
@@ -65,6 +65,23 @@ def _seed_sentence(session: Session) -> Sentence:
     return sentence
 
 
+def _seed_chunk(session: Session) -> SentenceChunk:
+    sentence = _seed_sentence(session)
+    chunk = SentenceChunk(
+        sentence_id=sentence.id,
+        order_index=1,
+        text="Bonjour",
+        translation_en="Hello",
+        translation_zh="你好",
+        chunk_type="expression",
+        extra={},
+    )
+    session.add(chunk)
+    session.commit()
+    session.refresh(chunk)
+    return chunk
+
+
 def test_create_and_list_flashcards(client: TestClient, session: Session) -> None:
     sentence = _seed_sentence(session)
     create_resp = client.post(
@@ -95,3 +112,20 @@ def test_record_review(client: TestClient, session: Session) -> None:
     assert review_resp.status_code == 200
     card = review_resp.json()
     assert card["streak"] == 1
+
+
+def test_chunk_flashcard_payload(client: TestClient, session: Session) -> None:
+    chunk = _seed_chunk(session)
+    create_resp = client.post(
+        "/flashcards",
+        json={"entity_type": "chunk", "entity_id": chunk.id},
+    )
+    assert create_resp.status_code == 201
+    list_resp = client.get("/flashcards?entity_type=chunk")
+    assert list_resp.status_code == 200
+    data = list_resp.json()
+    assert len(data) == 1
+    assert data[0]["card"]["entity_type"] == "chunk"
+    chunk_payload = data[0]["chunk"]
+    assert chunk_payload["text"] == "Bonjour"
+    assert chunk_payload["sentence"]["text"] == "Bonjour tout le monde"

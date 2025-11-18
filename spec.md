@@ -99,7 +99,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - **StructureExtractor**（`structure`）：在 `Answer` 固化后，再独立调用 LLM 拆解段落→句子→关系，返回 JSON（包括排序、角色、关系，T2 需识别追问链路、角色以及“问/答/追问/评论”类型）。
    - `GraphBuilder`（`structure_graph`，可选）：从结构 JSON 解析节点与边，写入图表。仅在用户主动触发“篇章图分析”或题目设置要求时运行；默认可跳过，仅保留段落顺序。
    - `SentenceTranslator`（`translate`）：为每个句子生成中英翻译。
-   - **ChunkExtractor**（`chunk_sentence`）：对选定句子调用 LLM，将句子拆成 3-6 个 `SentenceChunk`（含原文与中英翻译），并进行质检（覆盖度、语法完整性）。Chunk 记录直接与句子关联，可多次重试。
+   - **ChunkExtractor**（`chunk_sentence`）：对选定句子调用 LLM，将句子拆成若干个 `SentenceChunk`（含原文与中英翻译），并进行质检（覆盖度、语法完整性）。Chunk 记录直接与句子关联，可多次重试。
    - **LexemeExtractor**（`lexeme_from_chunks`）：以 chunk 输出为输入，调用 LLM 为每个 chunk 提取 1~N 个关键词/中心词，生成 `Lexeme` 并通过 `ChunkLexeme` 关联。词性/难度需匹配约定枚举；若命中已有 lexeme 则复用。
    - 所有 Task 均进入全局队列异步执行；前端通过任务 API 轮询/订阅进度，用户可离开页面稍后再查看结果；在答案详情页需展示尚未完成/失败的任务，并提供单个任务的重试按钮。
 6. 生成抽认卡初始计划：为句子/短语创建 `FlashcardProgress`，设定固定间隔（如 1/3/7 天）。

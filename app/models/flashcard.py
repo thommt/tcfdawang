@@ -59,7 +59,19 @@ class LexemeCardInfo(BaseModel):
     sample_sentence_translation: Optional[str] = None
 
 
+class ChunkCardInfo(BaseModel):
+    id: int
+    sentence_id: int
+    order_index: int
+    text: str
+    translation_en: Optional[str] = None
+    translation_zh: Optional[str] = None
+    chunk_type: Optional[str] = None
+    sentence: Optional[SentenceCardInfo] = None
+
+
 class FlashcardStudyCardRead(BaseModel):
     card: FlashcardProgressRead
     sentence: Optional[SentenceCardInfo] = None
     lexeme: Optional[LexemeCardInfo] = None
+    chunk: Optional[ChunkCardInfo] = None

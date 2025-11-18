@@ -14,6 +14,7 @@ from app.models.flashcard import (
     FlashcardStudyCardRead,
     SentenceCardInfo,
     LexemeCardInfo,
+    ChunkCardInfo,
 )
 
 
@@ -97,6 +98,7 @@ class FlashcardService:
     def _build_study_card(self, entity: FlashcardProgress) -> FlashcardStudyCardRead:
         sentence_info: Optional[SentenceCardInfo] = None
         lexeme_info: Optional[LexemeCardInfo] = None
+        chunk_info: Optional[ChunkCardInfo] = None
         if entity.entity_type == "sentence":
             sentence = self.session.get(Sentence, entity.entity_id)
             if sentence:
@@ -109,6 +111,32 @@ class FlashcardService:
                     translation_en=sentence.translation_en,
                     translation_zh=sentence.translation_zh,
                     difficulty=sentence.difficulty,
+                )
+        elif entity.entity_type == "chunk":
+            chunk = self.session.get(SentenceChunk, entity.entity_id)
+            if chunk:
+                sentence = self.session.get(Sentence, chunk.sentence_id)
+                paragraph = self.session.get(Paragraph, sentence.paragraph_id) if sentence else None
+                sentence_context = None
+                if sentence:
+                    sentence_context = SentenceCardInfo(
+                        id=sentence.id,
+                        paragraph_id=sentence.paragraph_id,
+                        answer_id=paragraph.answer_id if paragraph else None,
+                        text=sentence.text,
+                        translation_en=sentence.translation_en,
+                        translation_zh=sentence.translation_zh,
+                        difficulty=sentence.difficulty,
+                    )
+                chunk_info = ChunkCardInfo(
+                    id=chunk.id,
+                    sentence_id=chunk.sentence_id,
+                    order_index=chunk.order_index,
+                    text=chunk.text,
+                    translation_en=chunk.translation_en,
+                    translation_zh=chunk.translation_zh,
+                    chunk_type=chunk.chunk_type,
+                    sentence=sentence_context,
                 )
         elif entity.entity_type == "lexeme":
             lexeme = self.session.get(Lexeme, entity.entity_id)
@@ -138,4 +166,5 @@ class FlashcardService:
             card=FlashcardProgressRead.model_validate(entity),
             sentence=sentence_info,
             lexeme=lexeme_info,
+            chunk=chunk_info,
         )

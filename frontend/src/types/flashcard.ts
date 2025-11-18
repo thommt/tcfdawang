@@ -33,8 +33,20 @@ export interface LexemeCardInfo {
   sample_sentence_translation?: string | null;
 }
 
+export interface ChunkCardInfo {
+  id: number;
+  sentence_id: number;
+  order_index: number;
+  text: string;
+  translation_en?: string | null;
+  translation_zh?: string | null;
+  chunk_type?: string | null;
+  sentence?: SentenceCardInfo | null;
+}
+
 export interface FlashcardStudyCard {
   card: FlashcardProgress;
   sentence?: SentenceCardInfo | null;
   lexeme?: LexemeCardInfo | null;
+  chunk?: ChunkCardInfo | null;
 }

@@ -1,7 +1,10 @@
 import apiClient from './http';
 import type { FlashcardStudyCard, FlashcardProgress } from '../types/flashcard';
 
-export async function fetchDueFlashcards(entityType?: 'sentence' | 'lexeme', limit = 20): Promise<FlashcardStudyCard[]> {
+export async function fetchDueFlashcards(
+  entityType?: 'sentence' | 'chunk' | 'lexeme',
+  limit = 20
+): Promise<FlashcardStudyCard[]> {
   const response = await apiClient.get<FlashcardStudyCard[]>('/flashcards', {
     params: {
       entity_type: entityType,
