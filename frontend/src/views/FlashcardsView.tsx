@@ -29,6 +29,7 @@ export default defineComponent({
     const error = ref('');
     const message = ref('');
     const entityFilter = ref<EntityFilter>('guided');
+    const answerFilterId = ref<number | null>(null);
     const currentIndex = ref(0);
 
     const currentCard = computed(() => cards.value[currentIndex.value] ?? null);
@@ -40,9 +41,16 @@ export default defineComponent({
       message.value = '';
       try {
         if (entityFilter.value === 'guided') {
-          cards.value = await fetchDueFlashcards({ mode: 'guided' });
+          cards.value = await fetchDueFlashcards({
+            mode: 'guided',
+            answerId: answerFilterId.value ?? undefined
+          });
         } else {
-          cards.value = await fetchDueFlashcards({ mode: 'manual', entityType: entityFilter.value });
+          cards.value = await fetchDueFlashcards({
+            mode: 'manual',
+            entityType: entityFilter.value,
+            answerId: answerFilterId.value ?? undefined
+          });
         }
         currentIndex.value = 0;
       } catch (err) {
@@ -56,7 +64,13 @@ export default defineComponent({
     function changeFilter(value: EntityFilter) {
       if (entityFilter.value === value) return;
       entityFilter.value = value;
-      const query = value === 'guided' ? {} : { type: value };
+      const query: Record<string, string> = {};
+      if (value !== 'guided') {
+        query.type = value;
+      }
+      if (answerFilterId.value !== null) {
+        query.answerId = String(answerFilterId.value);
+      }
       router.replace({ name: 'flashcards', query });
       loadCards();
     }
@@ -164,6 +178,13 @@ export default defineComponent({
       } else {
         entityFilter.value = 'guided';
       }
+      const queryAnswer = route.query.answerId;
+      if (typeof queryAnswer === 'string' && queryAnswer.trim().length > 0) {
+        const parsed = Number(queryAnswer);
+        answerFilterId.value = Number.isFinite(parsed) ? parsed : null;
+      } else {
+        answerFilterId.value = null;
+      }
     }
 
     onMounted(() => {
@@ -178,6 +199,20 @@ export default defineComponent({
         loadCards();
       }
     );
+    watch(
+      () => route.query.answerId,
+      () => {
+        syncFilterFromRoute();
+        loadCards();
+      }
+    );
+
+    function clearAnswerFilter() {
+      answerFilterId.value = null;
+      const query = entityFilter.value === 'guided' ? {} : { type: entityFilter.value };
+      router.replace({ name: 'flashcards', query });
+      loadCards();
+    }
 
     return () => (
       <section class="flashcards-view">
@@ -204,6 +239,14 @@ export default defineComponent({
             <RouterLink to="/questions">返回题库</RouterLink>
           </div>
         </header>
+        {answerFilterId.value !== null && (
+          <p class="notice">
+            当前仅复习答案 #{answerFilterId.value}
+            <button type="button" onClick={clearAnswerFilter} disabled={loading.value}>
+              清除限制
+            </button>
+          </p>
+        )}
         {error.value && <p class="error">{error.value}</p>}
         {message.value && <p class="success">{message.value}</p>}
         {loading.value && <p>加载中...</p>}

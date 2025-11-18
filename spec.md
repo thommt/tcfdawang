@@ -69,7 +69,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 > **LLMConversation 存储**：`messages` 与 `result` 字段需使用大容量类型（SQLite TEXT / PostgreSQL JSONB）以容纳完整对话记录；必要时可启用压缩或归档策略，确保长对话不会截断。`Task` 只记录执行状态与 `conversation_id` 引用，具体 prompt/response 由 `LLMConversation` 保存。
 | `ParagraphGraphNode` | id、answer_id、paragraph_id、label、metadata(json) |
 | `ParagraphGraphEdge` | id、answer_id、from_node_id、to_node_id、relation(enum: support/contrast/example/summary/follow_up/clarification/contain/expand)、metadata(json，可存权重/注释) |
-| `FlashcardProgress` | id、entity_type(sentence/lexeme)、entity_id、last_score、due_at、streak、interval_days |
+| `FlashcardProgress` | id、entity_type(sentence/chunk/lexeme)、entity_id、last_score、due_at、streak、interval_days |
 | `Favorite` | id、entity_type(answer/paragraph/sentence/lexeme)、entity_id、note、created_at |
 | `QuestionTag` | id、question_id、tag |
 
@@ -90,6 +90,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 4. 记录导入日志并返回统计。
 
 ### 5.2 首次学习流程
+> **默认 Session 学习路径**：每次 Session（无论首次还是复习）都遵循“用户先独立写完整草稿 → 触发评估任务 → 阅读反馈并决定下一步 → 如有需要，再触发 LLM 生成范文 → 对生成结果执行结构/翻译/Chunk/Lexeme 拆解 → 进入 chunk→句子学习”的顺序。首次 Session 结束后，题目至少会拥有一个 `AnswerGroup` 与其 `Answer(version_index=1)`，并在 `AnswerGroup.descriptor`/`dialogue_profile` 中记录主旨与人设。
 1. 用户在前端选择题目，创建 `Session(session_type=first)`。
 2. 用户录入答案（富文本/Markdown），前端调用 `POST /sessions/{id}/answers/draft`。
 3. 服务层调用 LangChain 流程“Answer Evaluation”，执行多轮对话（每轮提供指导、要求用户改进）。该评估通过异步任务（`Task` type=`eval`）完成，`Session.progress_state` 持久化当前轮次、草稿与 LLM 消息，用户可在前端查看任务进度、必要时手动重试。
@@ -114,6 +115,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - `GapHighlighter`（task=`gap_highlight`）标出未覆盖段落/句子、语法词汇问题。
    - `RefinedAnswerGenerator`（task=`refine`）在保持主旨结构的前提下，融合用户新答案亮点生成 `Answer` 的下一版本（version_index +1）。
 5. 触发与首次相同的结构化与抽认卡流程；仅对新/变更句子更新 Flashcard 进度。
+6. 复习 Session 完成后，也必须重新执行 chunk→句子学习，以确保 flashcard 数据覆盖该版本（不论是新答案组还是既有组的 i+1 版本）。
 
 ### 5.4 抽认卡（固定间隔 mock SRS）
 1. 后端根据 `FlashcardProgress.due_at` 输出今日到期卡片，分为两种模式：
@@ -121,6 +123,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - **Manual**：与早期版本一致，可通过 `entity_type=chunk/sentence/lexeme` 过滤，适合针对特定实体单独训练或排查问题。
 2. 前端 `FlashcardsView`：
    - 默认进入 Guided 模式，自动呈现“本句 chunk → 本句整句 → 下一句”的序列；同时保留手动筛选按钮以切换到 chunk/句子/lexeme 独立练习。
+   - 支持 `answer_id` 过滤：当用户从某个答案详情页或收藏入口点进来时，仅复习该答案关联的 chunk/句子/lexeme。
    - 每张卡片显示来源句/段落信息与翻译；若 `sentence.extra` 有 `chunk_issues` 或 `lexeme_issues`，在 Guided 模式下提示用户是否需要重试拆分任务。
 3. 用户提交结果（对/错/困难），后端更新 `streak`、`interval_days`（使用简化表，例如 1→3→7→14→...），同时记录答题日志；Guided/Manual 模式共享同一套 `FlashcardProgress` 数据。
 4. 抽认卡调度可通过后台任务（批量更新 due_at、生成 new cards）运行，避免长事务。
@@ -204,6 +207,11 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - `GET /audio/{id}` 下载音频；`POST /playlists/{id}/export` 触发合成整列表音频。
 6. **缓存与存储**：音频文件可存储在磁盘或对象存储，表中记录路径；需要定期清理未使用的音频（如长时间未播放的翻译音频）。
 7. **TDD 要求**：对播放列表操作、设置继承、音频生成 API 需提供单测/集成测试；前端需有播放控制组件的单元测试和播放流程的 E2E 测试。
+
+### 5.11 自定义学习路径
+1. **答案版专练**：在 Answer 详情页提供“仅复习该答案”入口，跳转至 FlashcardsView 并携带 `answer_id`；Guided 模式仅遍历该答案的句子顺序，Manual 模式则允许在 chunk/句子/lexeme 间自由切换，但都限定在该版本范围内。
+2. **收藏/列表训练**：收藏夹（以及未来的 Collection/播放列表）可直接发起 chunk/句子/lexeme 专项训练，不依赖当前 Session，但仍复用共用的 `FlashcardProgress`，并记录复习分数。
+3. **缺失提示**：当某句尚未完成翻译/拆分时，自定义训练界面需提示并允许即时触发相应任务，确保 chunk→句子学习材料充足。
 
 ## 6. API 初稿
 

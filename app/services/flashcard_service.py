@@ -48,9 +48,11 @@ class FlashcardService:
         entity_type: Optional[str] = None,
         mode: str = "manual",
         limit: int = 50,
+        answer_id: Optional[int] = None,
     ) -> List[FlashcardStudyCardRead]:
+        answer_filter = self._build_answer_entity_filter(answer_id) if answer_id else None
         if mode == "guided":
-            return self._list_guided(limit=limit)
+            return self._list_guided(limit=limit, answer_filter=answer_filter)
         now = datetime.now(timezone.utc)
         statement = select(FlashcardProgress).where(FlashcardProgress.due_at <= now).order_by(FlashcardProgress.due_at)
         if entity_type:
@@ -60,6 +62,8 @@ class FlashcardService:
         rows = self.session.exec(statement).all()
         cards: List[FlashcardStudyCardRead] = []
         for row in rows:
+            if answer_filter and not self._entity_in_filter(row, answer_filter):
+                continue
             study_card = self._build_study_card(row)
             cards.append(study_card)
         return cards
@@ -177,7 +181,7 @@ class FlashcardService:
             chunk=chunk_info,
         )
 
-    def _list_guided(self, *, limit: int) -> List[FlashcardStudyCardRead]:
+    def _list_guided(self, *, limit: int, answer_filter: Optional[dict[str, set[int]]] = None) -> List[FlashcardStudyCardRead]:
         now = datetime.now(timezone.utc)
         statement = select(FlashcardProgress).where(FlashcardProgress.due_at <= now).order_by(FlashcardProgress.due_at)
         rows = self.session.exec(statement).all()
@@ -188,6 +192,8 @@ class FlashcardService:
         lexeme_cards: list[FlashcardStudyCardRead] = []
         sentence_due_map: dict[int, datetime] = {}
         for row in rows:
+            if answer_filter and not self._entity_in_filter(row, answer_filter):
+                continue
             card = self._build_study_card(row)
             if row.entity_type == "chunk" and card.chunk:
                 chunk_map.setdefault(card.chunk.sentence_id, []).append(card)
@@ -220,3 +226,43 @@ class FlashcardService:
             # 当没有句子/Chunk due 时，退化为返回 lexeme 以免界面空白
             return lexeme_cards[:limit]
         return results[:limit]
+
+    def _entity_in_filter(self, entity: FlashcardProgress, answer_filter: dict[str, set[int]]) -> bool:
+        if entity.entity_type == "sentence":
+            return entity.entity_id in answer_filter["sentence"]
+        if entity.entity_type == "chunk":
+            return entity.entity_id in answer_filter["chunk"]
+        if entity.entity_type == "lexeme":
+            return entity.entity_id in answer_filter["lexeme"]
+        return False
+
+    def _build_answer_entity_filter(self, answer_id: int) -> dict[str, set[int]]:
+        sentence_rows = self.session.exec(
+            select(Sentence.id)
+            .join(Paragraph, Paragraph.id == Sentence.paragraph_id)
+            .where(Paragraph.answer_id == answer_id)
+        ).all()
+        sentence_ids = {row if isinstance(row, int) else row[0] for row in sentence_rows}
+        chunk_ids = set()
+        sentence_id_list = list(sentence_ids)
+        if sentence_id_list:
+            chunk_rows = self.session.exec(
+                select(SentenceChunk.id).where(SentenceChunk.sentence_id.in_(sentence_id_list))
+            ).all()
+            chunk_ids = {row if isinstance(row, int) else row[0] for row in chunk_rows}
+        lexeme_ids = set()
+        chunk_id_list = list(chunk_ids)
+        if chunk_id_list:
+            lexeme_rows = self.session.exec(
+                select(ChunkLexeme.lexeme_id).where(ChunkLexeme.chunk_id.in_(chunk_id_list))
+            ).all()
+            lexeme_ids = {
+                (row if isinstance(row, int) else row[0])
+                for row in lexeme_rows
+                if (row if isinstance(row, int) else row[0]) is not None
+            }
+        return {
+            "sentence": sentence_ids,
+            "chunk": chunk_ids,
+            "lexeme": lexeme_ids,
+        }

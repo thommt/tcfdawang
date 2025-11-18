@@ -85,6 +85,12 @@ def _seed_chunk(session: Session) -> SentenceChunk:
     return chunk
 
 
+def _answer_id_from_sentence(session: Session, sentence: Sentence) -> int:
+    paragraph = session.get(Paragraph, sentence.paragraph_id)
+    assert paragraph is not None
+    return paragraph.answer_id
+
+
 def _create_due_card(session: Session, entity_type: str, entity_id: int) -> int:
     service = FlashcardService(session)
     created = service.get_or_create(
@@ -212,3 +218,55 @@ def test_guided_mode_returns_sentence_when_chunks_done(client: TestClient, sessi
     data = resp.json()
     assert len(data) == 1
     assert data[0]["card"]["entity_type"] == "sentence"
+
+
+def test_flashcards_can_filter_by_answer_in_manual_mode(client: TestClient, session: Session) -> None:
+    sentence_a = _seed_sentence(session)
+    sentence_b = _seed_sentence(session)
+    for sentence in (sentence_a, sentence_b):
+        client.post(
+            "/flashcards",
+            json={"entity_type": "sentence", "entity_id": sentence.id},
+        )
+    answer_a_id = _answer_id_from_sentence(session, sentence_a)
+    resp = client.get(
+        "/flashcards",
+        params={"mode": "manual", "entity_type": "sentence", "answer_id": answer_a_id},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["card"]["entity_id"] == sentence_a.id
+
+
+def test_flashcards_chunk_filter_by_answer(client: TestClient, session: Session) -> None:
+    sentence = _seed_sentence(session)
+    paragraph = session.get(Paragraph, sentence.paragraph_id)
+    assert paragraph is not None
+    answer_id = paragraph.answer_id
+    chunk_a = SentenceChunk(
+        sentence_id=sentence.id,
+        order_index=1,
+        text="Bonjour",
+        translation_en="Hello",
+        translation_zh="你好",
+        chunk_type="expression",
+        extra={},
+    )
+    session.add(chunk_a)
+    session.commit()
+    session.refresh(chunk_a)
+    chunk_b = _seed_chunk(session)
+    for chunk in (chunk_a, chunk_b):
+        client.post(
+            "/flashcards",
+            json={"entity_type": "chunk", "entity_id": chunk.id},
+        )
+    resp = client.get(
+        "/flashcards",
+        params={"mode": "manual", "entity_type": "chunk", "answer_id": answer_id},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["chunk"]["id"] == chunk_a.id

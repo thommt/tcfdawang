@@ -88,12 +88,11 @@ export default defineComponent({
     }
 
     function goToFlashcards(type: 'sentence' | 'chunk' | 'lexeme') {
-      const query =
-        type === 'sentence'
-          ? { type: 'sentence' }
-          : type === 'chunk'
-          ? { type: 'chunk' }
-          : { type: 'lexeme' };
+      const query: Record<string, string> = {};
+      query.type = type;
+      if (answer.value) {
+        query.answerId = String(answer.value.id);
+      }
       router.push({ name: 'flashcards', query });
     }
 
