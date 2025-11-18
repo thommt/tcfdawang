@@ -32,6 +32,34 @@ export interface Sentence {
   difficulty?: string | null;
   extra: Record<string, unknown>;
   created_at: string;
+  lexemes: SentenceLexemeUsage[];
+}
+
+export interface Lexeme {
+  id: number;
+  lemma: string;
+  sense_label?: string | null;
+  gloss?: string | null;
+  translation_en?: string | null;
+  translation_zh?: string | null;
+  pos_tags?: string | null;
+  notes?: string | null;
+  complexity_level?: string | null;
+  hash: string;
+  is_manual: boolean;
+  extra: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SentenceLexemeUsage {
+  id: number;
+  sentence_id: number;
+  lexeme_id: number;
+  order_index: number;
+  context_note?: string | null;
+  translation_override?: string | null;
+  lexeme: Lexeme;
 }
 
 export interface Paragraph {

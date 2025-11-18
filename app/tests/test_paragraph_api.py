@@ -48,6 +48,34 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
                 ]
             }
 
+        def translate_sentences(self, **kwargs):
+            return {
+                "translations": [
+                    {
+                        "sentence_index": 1,
+                        "translation_en": "Hi",
+                        "translation_zh": "你好",
+                        "difficulty": "B1",
+                    }
+                ]
+            }
+
+        def split_sentence(self, **kwargs):
+            return {
+                "phrases": [
+                    {
+                        "phrase": "Bonjour",
+                        "lemma": "bonjour",
+                        "sense_label": "问候",
+                        "gloss": "to greet someone",
+                        "translation_zh": "你好",
+                        "translation_en": "hello",
+                        "pos_tags": "interj",
+                        "difficulty": "A2",
+                    }
+                ]
+            }
+
     app.dependency_overrides[get_session] = override_get_session
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     test_client = TestClient(app)
@@ -150,3 +178,19 @@ def test_sentence_translation_task(client: TestClient, session: Session) -> None
     assert sentence.translation_en == "Hi"
     assert sentence.translation_zh == "你好"
     assert sentence.difficulty == "B1"
+
+
+def test_sentence_split_task(client: TestClient, session: Session) -> None:
+    answer_id = _create_answer(session)
+    sentence = session.exec(select(Sentence)).first()
+    response = client.post(f"/sentences/{sentence.id}/tasks/split-phrases")
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "succeeded"
+    from app.db.schemas import SentenceLexeme, Lexeme  # local import to avoid circular
+
+    links = session.exec(select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence.id)).all()
+    assert len(links) == 1
+    lexeme = session.exec(select(Lexeme).where(Lexeme.id == links[0].lexeme_id)).first()
+    assert lexeme.lemma == "bonjour"
+    assert lexeme.translation_zh == "你好"

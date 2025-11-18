@@ -60,3 +60,16 @@ SENTENCE_TRANSLATION_HUMAN_PROMPT = (
     "题目内容摘要: {question_body}\n"
     "待处理的句子如下：\n{sentences_block}"
 )
+
+PHRASE_SPLIT_SYSTEM_PROMPT = (
+    "你是TCF Canada 词块拆分助手。请将给定的句子拆成若干有意义的短语或词块，"
+    "每个词块需要提供 lemma(词根)、中文 sense_label、英文/中文翻译、简短 gloss、词性(pos) 和(可选)难度等级。"
+    "尽量过滤掉非常简单或无意义的词，优先输出对表达有帮助的短语。{format_instructions}"
+)
+
+PHRASE_SPLIT_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容摘要: {question_body}\n"
+    "目标句子: {sentence_text}"
+)

@@ -4,6 +4,7 @@ import { fetchAnswerById, fetchAnswerHistory } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
 import { fetchParagraphsByAnswer, runStructureTask, runSentenceTranslationTask } from '../api/paragraphs';
+import { splitSentence } from '../api/sentences';
 import type { Answer, AnswerGroup, Paragraph, AnswerHistory } from '../types/answer';
 import type { Question, FetchTask } from '../types/question';
 import { useSessionStore } from '../stores/sessions';
@@ -31,6 +32,9 @@ export default defineComponent({
     const historyLoading = ref(false);
     const historyError = ref('');
     const reviewError = ref('');
+    const splittingSentenceId = ref<number | null>(null);
+    const splitError = ref('');
+    const splitMessage = ref('');
 
     async function loadParagraphStructure() {
       paragraphs.value = await fetchParagraphsByAnswer(answerId);
@@ -61,6 +65,8 @@ export default defineComponent({
       structuringMessage.value = '';
       translationError.value = '';
       translationMessage.value = '';
+      splitError.value = '';
+      splitMessage.value = '';
       try {
         answer.value = await fetchAnswerById(answerId);
         group.value = await fetchAnswerGroupById(answer.value.answer_group_id);
@@ -117,6 +123,24 @@ export default defineComponent({
         console.error(err);
       } finally {
         translating.value = false;
+        await loadParagraphStructure();
+        await loadHistory();
+      }
+    }
+
+    async function splitSentenceLexemes(sentenceId: number) {
+      if (splittingSentenceId.value) return;
+      splittingSentenceId.value = sentenceId;
+      splitError.value = '';
+      splitMessage.value = '';
+      try {
+        await splitSentence(sentenceId);
+        splitMessage.value = '拆分完成';
+      } catch (err) {
+        splitError.value = '触发句子拆分失败';
+        console.error(err);
+      } finally {
+        splittingSentenceId.value = null;
         await loadParagraphStructure();
         await loadHistory();
       }
@@ -192,6 +216,8 @@ export default defineComponent({
           {structuringMessage.value && <p class="success">{structuringMessage.value}</p>}
           {translationError.value && <p class="error">{translationError.value}</p>}
           {translationMessage.value && <p class="success">{translationMessage.value}</p>}
+          {splitError.value && <p class="error">{splitError.value}</p>}
+          {splitMessage.value && <p class="success">{splitMessage.value}</p>}
           {latestStructureTask.value && (
             <p class="structure-task-meta">
               最近一次任务：#{latestStructureTask.value.id} · {latestStructureTask.value.status} ·
@@ -217,19 +243,42 @@ export default defineComponent({
                       <p>{sentence.text}</p>
                       {(sentence.translation_en || sentence.translation_zh) && (
                         <p class="sentence-translation">
-                          {sentence.translation_en && (
-                            <span>
-                              EN: {sentence.translation_en}
-                            </span>
-                          )}
+                          {sentence.translation_en && <span>EN: {sentence.translation_en}</span>}
                           {sentence.translation_zh && (
-                            <span style="margin-left:0.5rem;">
-                              中: {sentence.translation_zh}
-                            </span>
+                            <span style="margin-left:0.5rem;">中: {sentence.translation_zh}</span>
                           )}
                         </p>
                       )}
                       {sentence.difficulty && <small>难度：{sentence.difficulty}</small>}
+                      <div class="sentence-actions">
+                        <button
+                          type="button"
+                          onClick={() => splitSentenceLexemes(sentence.id)}
+                          disabled={splittingSentenceId.value === sentence.id}
+                        >
+                          {splittingSentenceId.value === sentence.id
+                            ? '拆分中...'
+                            : sentence.lexemes && sentence.lexemes.length > 0
+                            ? '重新拆分'
+                            : '生成拆分'}
+                        </button>
+                      </div>
+                      {sentence.lexemes && sentence.lexemes.length > 0 ? (
+                        <ul class="lexeme-list">
+                          {sentence.lexemes.map((usage) => (
+                            <li key={usage.id}>
+                              <strong>{usage.lexeme.lemma}</strong>
+                              {usage.lexeme.translation_zh && <span> · {usage.lexeme.translation_zh}</span>}
+                              {usage.lexeme.translation_en && !usage.lexeme.translation_zh && (
+                                <span> · {usage.lexeme.translation_en}</span>
+                              )}
+                              {usage.lexeme.sense_label && <em> ({usage.lexeme.sense_label})</em>}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <small>尚未拆分</small>
+                      )}
                     </li>
                   ))}
                 </ol>

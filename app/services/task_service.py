@@ -15,6 +15,8 @@ from app.db.schemas import (
     AnswerGroup as AnswerGroupSchema,
     Paragraph,
     Sentence,
+    Lexeme,
+    SentenceLexeme,
 )
 from app.models.fetch_task import TaskRead
 from app.services.llm_service import QuestionLLMClient, LLMError
@@ -325,3 +327,110 @@ class TaskService:
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
+
+    def run_sentence_split_task(self, sentence_id: int) -> TaskRead:
+        sentence = self.session.get(Sentence, sentence_id)
+        if not sentence:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sentence not found")
+        paragraph = self.session.get(Paragraph, sentence.paragraph_id)
+        if not paragraph:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paragraph not found")
+        answer = self.session.get(AnswerSchema, paragraph.answer_id)
+        if not answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        group = self.session.get(AnswerGroupSchema, answer.answer_group_id)
+        question = self.session.get(Question, group.question_id) if group else None
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        task = Task(
+            type="split_phrase",
+            status="pending",
+            payload={"sentence_id": sentence_id},
+            session_id=None,
+            answer_id=answer.id,
+        )
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        try:
+            split_result = self.llm_client.split_sentence(
+                question_type=question.type,
+                question_title=question.title,
+                question_body=question.body,
+                sentence_text=sentence.text,
+            )
+            phrases = split_result.get("phrases") or []
+            existing_links = self.session.exec(
+                select(SentenceLexeme).where(SentenceLexeme.sentence_id == sentence_id)
+            ).all()
+            for link in existing_links:
+                self.session.delete(link)
+            self.session.commit()
+            created = 0
+            for idx, phrase in enumerate(phrases, start=1):
+                lemma = (phrase.get("lemma") or phrase.get("phrase") or "").strip()
+                if not lemma:
+                    continue
+                sense_label = (phrase.get("sense_label") or "").strip()
+                hash_value = self._build_lexeme_hash(lemma, sense_label)
+                lexeme = self.session.exec(select(Lexeme).where(Lexeme.hash == hash_value)).first()
+                if not lexeme:
+                    lexeme = Lexeme(
+                        lemma=lemma,
+                        sense_label=sense_label or None,
+                        gloss=phrase.get("gloss"),
+                        translation_en=phrase.get("translation_en"),
+                        translation_zh=phrase.get("translation_zh"),
+                        pos_tags=phrase.get("pos_tags"),
+                        notes=phrase.get("notes"),
+                        complexity_level=phrase.get("difficulty"),
+                        hash=hash_value,
+                        is_manual=False,
+                        extra={},
+                    )
+                    self.session.add(lexeme)
+                    self.session.commit()
+                    self.session.refresh(lexeme)
+                sentence_lexeme = SentenceLexeme(
+                    sentence_id=sentence_id,
+                    lexeme_id=lexeme.id,
+                    order_index=idx,
+                    context_note=phrase.get("context_note"),
+                    translation_override=phrase.get("translation_override"),
+                    extra={},
+                )
+                self.session.add(sentence_lexeme)
+                created += 1
+            self.session.commit()
+            conversation = LLMConversation(
+                session_id=None,
+                task_id=task.id,
+                purpose="split_phrase",
+                messages={"sentence": sentence.text},
+                result=split_result,
+                model_name=getattr(self.llm_client, "model", None),
+                latency_ms=None,
+            )
+            self.session.add(conversation)
+            task.status = "succeeded"
+            task.result_summary = {"created": created}
+            task.updated_at = datetime.now(timezone.utc)
+            task.error_message = None
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except LLMError as exc:
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return TaskRead.model_validate(task)
+
+    def _build_lexeme_hash(self, lemma: str, sense_label: str) -> str:
+        normalized_lemma = lemma.strip().lower()
+        normalized_sense = (sense_label or "").strip().lower()
+        if normalized_sense:
+            return f"{normalized_lemma}::{normalized_sense}"
+        return normalized_lemma

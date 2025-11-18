@@ -49,3 +49,21 @@ class SentenceTranslationItemSchema(BaseModel):
 
 class SentenceTranslationResultSchema(BaseModel):
     translations: List[SentenceTranslationItemSchema] = Field(default_factory=list)
+
+
+class PhraseSplitItemSchema(BaseModel):
+    phrase: str = Field(..., description="原始短语或词组")
+    lemma: str = Field(..., description="词条的词根/字典形")
+    sense_label: str = Field(..., description="该词义的中文标签")
+    gloss: Optional[str] = Field(default=None, description="详细释义或解释")
+    translation_en: Optional[str] = Field(default=None)
+    translation_zh: Optional[str] = Field(default=None)
+    pos_tags: Optional[str] = Field(default=None)
+    difficulty: Optional[str] = Field(default=None)
+    notes: Optional[str] = Field(default=None)
+    context_note: Optional[str] = Field(default=None)
+    translation_override: Optional[str] = Field(default=None)
+
+
+class PhraseSplitResultSchema(BaseModel):
+    phrases: List[PhraseSplitItemSchema] = Field(default_factory=list)

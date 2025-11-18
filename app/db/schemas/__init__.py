@@ -3,6 +3,7 @@ from .task import Task
 from .answer import AnswerGroup, Answer, Session
 from .conversation import LLMConversation
 from .paragraph import Paragraph, Sentence
+from .lexeme import Lexeme, SentenceLexeme
 
 __all__ = [
     "Question",
@@ -14,4 +15,6 @@ __all__ = [
     "LLMConversation",
     "Paragraph",
     "Sentence",
+    "Lexeme",
+    "SentenceLexeme",
 ]

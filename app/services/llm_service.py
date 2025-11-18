@@ -43,6 +43,7 @@ class QuestionLLMClient:
         self._sentence_translation_chain, self._sentence_translation_parser = build_sentence_translation_chain(
             self._llm
         )
+        self._phrase_split_chain, self._phrase_split_parser = build_phrase_split_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -170,6 +171,30 @@ class QuestionLLMClient:
                     "question_body": question_body,
                     "sentences_block": sentences_block,
                     "format_instructions": self._sentence_translation_parser.get_format_instructions(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
+    def split_sentence(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        sentence_text: str,
+    ) -> dict:
+        if not sentence_text:
+            raise LLMError("暂无可拆分的句子")
+        try:
+            result = self._phrase_split_chain.invoke(
+                {
+                    "question_type": question_type,
+                    "question_title": question_title,
+                    "question_body": question_body,
+                    "sentence_text": sentence_text,
+                    "format_instructions": self._phrase_split_parser.get_format_instructions(),
                 }
             )
         except Exception as exc:  # pragma: no cover
