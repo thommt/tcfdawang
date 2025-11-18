@@ -99,12 +99,14 @@ export default defineComponent({
                   <th>类型</th>
                   <th>状态</th>
                   <th>最近反馈</th>
+                  <th>复习要点</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {relatedSessions.value.map((session) => {
                   const lastEval = (session.progress_state?.last_eval ?? {}) as Record<string, unknown>;
+                  const reviewNotes = session.progress_state?.review_notes as string | undefined;
                   return (
                     <tr key={session.id}>
                       <td>{session.id}</td>
@@ -112,6 +114,16 @@ export default defineComponent({
                       <td>{session.status}</td>
                       <td>
                         {'feedback' in lastEval ? `${lastEval.feedback as string} (分数: ${lastEval.score ?? '无'})` : '暂无'}
+                      </td>
+                      <td>
+                        {reviewNotes ? (
+                          <span title={reviewNotes}>
+                            {reviewNotes.slice(0, 30)}
+                            {reviewNotes.length > 30 ? '…' : ''}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td>
                         <RouterLink to={`/sessions/${session.id}`}>进入</RouterLink>
