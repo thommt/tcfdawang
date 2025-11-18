@@ -81,6 +81,11 @@ export default defineComponent({
       }
     }
 
+    function goToFlashcards(type: 'sentence' | 'lexeme') {
+      const query = type === 'sentence' ? { type: 'sentence' } : { type: 'lexeme' };
+      router.push({ name: 'flashcards', query });
+    }
+
     async function startReviewSession() {
       reviewError.value = '';
       try {
@@ -197,6 +202,14 @@ export default defineComponent({
             <button type="button" onClick={startReviewSession}>
               基于此答案创建复习 Session
             </button>
+            <div class="flashcard-shortcuts">
+              <button type="button" onClick={() => goToFlashcards('sentence')}>
+                复习句子抽认卡
+              </button>
+              <button type="button" onClick={() => goToFlashcards('lexeme')}>
+                复习词块抽认卡
+              </button>
+            </div>
             {reviewError.value && <p class="error">{reviewError.value}</p>}
           </article>
         )}

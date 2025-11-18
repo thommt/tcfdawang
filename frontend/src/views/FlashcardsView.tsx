@@ -1,5 +1,5 @@
-import { defineComponent, ref, computed, onMounted } from 'vue';
-import { RouterLink } from 'vue-router';
+import { defineComponent, ref, computed, onMounted, watch } from 'vue';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
 
@@ -20,6 +20,8 @@ const reviewScores = [
 export default defineComponent({
   name: 'FlashcardsView',
   setup() {
+    const route = useRoute();
+    const router = useRouter();
     const cards = ref<FlashcardStudyCard[]>([]);
     const loading = ref(false);
     const submitting = ref(false);
@@ -50,6 +52,8 @@ export default defineComponent({
     function changeFilter(value: EntityFilter) {
       if (entityFilter.value === value) return;
       entityFilter.value = value;
+      const query = value === 'sentence' ? {} : { type: value };
+      router.replace({ name: 'flashcards', query });
       loadCards();
     }
 
@@ -116,9 +120,27 @@ export default defineComponent({
       );
     }
 
+    function syncFilterFromRoute() {
+      const queryType = route.query.type;
+      if (queryType === 'lexeme' || queryType === 'all' || queryType === 'sentence') {
+        entityFilter.value = queryType;
+      } else {
+        entityFilter.value = 'sentence';
+      }
+    }
+
     onMounted(() => {
+      syncFilterFromRoute();
       loadCards();
     });
+
+    watch(
+      () => route.query.type,
+      () => {
+        syncFilterFromRoute();
+        loadCards();
+      }
+    );
 
     return () => (
       <section class="flashcards-view">
