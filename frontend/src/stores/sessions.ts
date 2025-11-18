@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import type { Session, SessionPayload, SessionFinalizePayload } from '../types/session';
+import type { Session, SessionPayload, SessionFinalizePayload, SessionHistory } from '../types/session';
 import type { FetchTask } from '../types/question';
 import {
   fetchSessions,
@@ -9,11 +9,14 @@ import {
   runEvalTask,
   runComposeTask,
   finalizeSession as finalizeSessionApi,
+  fetchSessionHistory,
 } from '../api/sessions';
 
 interface State {
   sessions: Session[];
   currentSession: Session | null;
+  history: SessionHistory | null;
+  historyLoading: boolean;
   loading: boolean;
   error: string | null;
   lastTask: FetchTask | null;
@@ -23,6 +26,8 @@ export const useSessionStore = defineStore('sessions', {
   state: (): State => ({
     sessions: [],
     currentSession: null,
+    history: null,
+    historyLoading: false,
     loading: false,
     error: null,
     lastTask: null,
@@ -75,22 +80,33 @@ export const useSessionStore = defineStore('sessions', {
     async saveDraft(sessionId: number, draft: string) {
       return this.updateSession(sessionId, { user_answer_draft: draft });
     },
+    async loadSessionHistory(sessionId: number) {
+      this.historyLoading = true;
+      try {
+        this.history = await fetchSessionHistory(sessionId);
+      } finally {
+        this.historyLoading = false;
+      }
+    },
     async triggerEval(sessionId: number) {
       const task = await runEvalTask(sessionId);
       this.lastTask = task;
       await this.loadSession(sessionId);
+      await this.loadSessionHistory(sessionId);
       return task;
     },
     async composeAnswer(sessionId: number) {
       const task = await runComposeTask(sessionId);
       this.lastTask = task;
       await this.loadSession(sessionId);
+      await this.loadSessionHistory(sessionId);
       return task;
     },
     async finalizeSession(sessionId: number, payload: SessionFinalizePayload) {
       const session = await finalizeSessionApi(sessionId, payload);
       this.currentSession = session;
       this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
+      await this.loadSessionHistory(sessionId);
       return session;
     },
     sessionsByQuestion(questionId: number) {

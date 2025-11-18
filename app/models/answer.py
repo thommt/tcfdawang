@@ -106,3 +106,9 @@ class AnswerHistoryRead(BaseModel):
     sessions: List[SessionRead] = Field(default_factory=list)
     tasks: List[TaskRead] = Field(default_factory=list)
     conversations: List[LLMConversationRead] = Field(default_factory=list)
+
+
+class SessionHistoryRead(BaseModel):
+    session: SessionRead
+    tasks: List[TaskRead] = Field(default_factory=list)
+    conversations: List[LLMConversationRead] = Field(default_factory=list)

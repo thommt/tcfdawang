@@ -1,3 +1,6 @@
+import type { FetchTask } from './question';
+import type { LLMConversationLog } from './answer';
+
 export type SessionType = 'first' | 'review';
 
 export interface SessionPayload {
@@ -45,4 +48,10 @@ export interface AnswerPayload {
 export interface EvalTaskResult {
   feedback?: string;
   score?: number;
+}
+
+export interface SessionHistory {
+  session: Session;
+  tasks: FetchTask[];
+  conversations: LLMConversationLog[];
 }

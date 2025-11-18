@@ -26,6 +26,7 @@ from app.models.answer import (
     SessionFinalizePayload,
     AnswerHistoryRead,
     LLMConversationRead,
+    SessionHistoryRead,
 )
 from app.models.fetch_task import TaskRead
 
@@ -168,6 +169,29 @@ class SessionService:
         if not answer:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
         return self._to_answer_read(answer)
+
+    def get_session_history(self, session_id: int) -> SessionHistoryRead:
+        session_entity = self._get_session_entity(session_id)
+        tasks = self.session.exec(
+            select(Task).where(Task.session_id == session_id).order_by(Task.created_at.desc())
+        ).all()
+        task_reads = [TaskRead.model_validate(task) for task in tasks]
+        task_ids = [task.id for task in tasks if task.id is not None]
+        conversation_conditions = [LLMConversation.session_id == session_id]
+        if task_ids:
+            conversation_conditions.append(LLMConversation.task_id.in_(task_ids))
+        conversation_statement = (
+            select(LLMConversation)
+            .where(or_(*conversation_conditions))
+            .order_by(LLMConversation.created_at.desc())
+        )
+        conversations = self.session.exec(conversation_statement).all()
+        conversation_reads = [LLMConversationRead.model_validate(conv) for conv in conversations]
+        return SessionHistoryRead(
+            session=self._to_session_read(session_entity),
+            tasks=task_reads,
+            conversations=conversation_reads,
+        )
 
     def get_answer_history(self, answer_id: int) -> AnswerHistoryRead:
         answer = self.session.get(AnswerSchema, answer_id)

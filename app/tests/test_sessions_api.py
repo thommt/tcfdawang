@@ -212,3 +212,21 @@ def test_answer_history_endpoint(client: TestClient) -> None:
     assert len(history["sessions"]) == 1
     assert any(task["type"] == "eval" for task in history["tasks"])
     assert any(conv["purpose"] == "eval" for conv in history["conversations"])
+
+
+def test_session_history_endpoint(client: TestClient) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Texte initial"},
+    ).json()
+    eval_resp = client.post(f"/sessions/{session_resp['id']}/tasks/eval")
+    assert eval_resp.status_code == 201
+
+    history_resp = client.get(f"/sessions/{session_resp['id']}/history")
+    assert history_resp.status_code == 200
+    history = history_resp.json()
+    assert history["session"]["id"] == session_resp["id"]
+    assert len(history["tasks"]) == 1
+    assert history["tasks"][0]["type"] == "eval"
+    assert any(conv["purpose"] == "eval" for conv in history["conversations"])

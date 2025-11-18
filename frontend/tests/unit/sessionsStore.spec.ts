@@ -45,6 +45,11 @@ describe('Session Store', () => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    const historySpy = vi.spyOn(api, 'fetchSessionHistory').mockResolvedValue({
+      session: mockSession,
+      tasks: [],
+      conversations: [],
+    });
     const store = useSessionStore();
     store.sessions = [mockSession];
     store.currentSession = mockSession;
@@ -54,6 +59,7 @@ describe('Session Store', () => {
     expect(store.lastTask?.type).toBe('eval');
     evalSpy.mockRestore();
     sessionSpy.mockRestore();
+    historySpy.mockRestore();
   });
 
   it('finalizes session', async () => {
@@ -63,6 +69,11 @@ describe('Session Store', () => {
       answer_id: 2,
       completed_at: new Date().toISOString(),
     });
+    const historySpy = vi.spyOn(api, 'fetchSessionHistory').mockResolvedValue({
+      session: { ...mockSession, status: 'completed' },
+      tasks: [],
+      conversations: [],
+    });
     const store = useSessionStore();
     store.sessions = [mockSession];
     store.currentSession = mockSession;
@@ -71,6 +82,7 @@ describe('Session Store', () => {
     expect(finalizeSpy).toHaveBeenCalledWith(1, payload);
     expect(store.currentSession?.status).toBe('completed');
     finalizeSpy.mockRestore();
+    historySpy.mockRestore();
   });
 
   it('composes answer via LLM task', async () => {
@@ -87,11 +99,17 @@ describe('Session Store', () => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    const historySpy = vi.spyOn(api, 'fetchSessionHistory').mockResolvedValue({
+      session: mockSession,
+      tasks: [],
+      conversations: [],
+    });
     const store = useSessionStore();
     store.sessions = [mockSession];
     store.currentSession = mockSession;
     await store.composeAnswer(1);
     expect(composeSpy).toHaveBeenCalledWith(1);
     composeSpy.mockRestore();
+    historySpy.mockRestore();
   });
 });

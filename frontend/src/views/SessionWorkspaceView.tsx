@@ -26,6 +26,15 @@ export default defineComponent({
     const sessionCompleted = computed(() => session.value?.status === 'completed');
 
     const session = computed<Session | null>(() => sessionStore.currentSession);
+    const sessionHistory = computed(() => sessionStore.history);
+    const historyLoading = computed(() => sessionStore.historyLoading);
+    const evalHistory = computed(() =>
+      sessionHistory.value ? sessionHistory.value.tasks.filter((task) => task.type === 'eval') : []
+    );
+    const composeHistory = computed(() =>
+      sessionHistory.value ? sessionHistory.value.tasks.filter((task) => task.type === 'compose') : []
+    );
+    const conversations = computed(() => sessionHistory.value?.conversations ?? []);
     const lastEval = computed(() => {
       const evalData = session.value?.progress_state?.last_eval as Record<string, unknown> | undefined;
       if (!evalData) return null;
@@ -47,6 +56,7 @@ export default defineComponent({
           question.value = await fetchQuestionById(current.question_id);
         }
       }
+      await sessionStore.loadSessionHistory(sessionId);
     }
 
     watch(
@@ -186,6 +196,75 @@ export default defineComponent({
             </article>
           </section>
         )}
+        <section class="history-panel">
+          <h3>评估历史</h3>
+          {historyLoading.value && <p>加载中...</p>}
+          {!historyLoading.value && evalHistory.value.length === 0 && <p>暂无评估记录。</p>}
+          {!historyLoading.value && evalHistory.value.length > 0 && (
+            <ul class="history-list">
+              {evalHistory.value.map((task) => {
+                const summary = task.result_summary as Record<string, unknown>;
+                return (
+                  <li key={task.id}>
+                    <header>
+                      #{task.id} · {new Date(task.updated_at).toLocaleString()} · {task.status}
+                    </header>
+                    <p>{(summary.feedback as string) ?? '无反馈'}</p>
+                    <small>分数：{summary.score ?? '—'}</small>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+        <section class="history-panel">
+          <h3>任务列表</h3>
+          {historyLoading.value && <p>加载中...</p>}
+          {!historyLoading.value && sessionHistory.value && sessionHistory.value.tasks.length === 0 && <p>暂无任务。</p>}
+          {!historyLoading.value && sessionHistory.value && sessionHistory.value.tasks.length > 0 && (
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>类型</th>
+                  <th>状态</th>
+                  <th>更新时间</th>
+                  <th>错误</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessionHistory.value.tasks.map((task) => (
+                  <tr key={task.id}>
+                    <td>{task.id}</td>
+                    <td>{task.type}</td>
+                    <td>{task.status}</td>
+                    <td>{new Date(task.updated_at).toLocaleString()}</td>
+                    <td>{task.error_message || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+        <section class="history-panel">
+          <h3>LLM 日志</h3>
+          {historyLoading.value && <p>加载中...</p>}
+          {!historyLoading.value && conversations.value.length === 0 && <p>暂无 LLM 对话。</p>}
+          {!historyLoading.value && conversations.value.length > 0 && (
+            <ul class="conversation-list">
+              {conversations.value.map((log) => (
+                <li key={log.id}>
+                  <strong>{log.purpose}</strong> · {new Date(log.created_at).toLocaleString()}
+                  {log.model_name && <span> · {log.model_name}</span>}
+                  <details>
+                    <summary>查看结果</summary>
+                    <pre>{JSON.stringify(log.result, null, 2)}</pre>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         {showFinalize.value && (
           <section class="finalize-panel">
             <h3>确认答案</h3>

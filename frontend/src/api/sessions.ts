@@ -1,5 +1,5 @@
 import apiClient from './http';
-import type { Session, SessionPayload, SessionFinalizePayload } from '../types/session';
+import type { Session, SessionPayload, SessionFinalizePayload, SessionHistory } from '../types/session';
 import type { FetchTask } from '../types/question';
 
 const resource = '/sessions';
@@ -39,5 +39,10 @@ export async function finalizeSession(
   payload: SessionFinalizePayload
 ): Promise<Session> {
   const response = await apiClient.post<Session>(`${resource}/${sessionId}/finalize`, payload);
+  return response.data;
+}
+
+export async function fetchSessionHistory(sessionId: number): Promise<SessionHistory> {
+  const response = await apiClient.get<SessionHistory>(`${resource}/${sessionId}/history`);
   return response.data;
 }
