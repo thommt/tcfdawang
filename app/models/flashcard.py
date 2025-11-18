@@ -35,3 +35,30 @@ class FlashcardProgressCreate(BaseModel):
     due_at: Optional[datetime] = None
     streak: Optional[int] = None
     interval_days: Optional[int] = None
+
+
+class SentenceCardInfo(BaseModel):
+    id: int
+    paragraph_id: int
+    answer_id: Optional[int] = None
+    text: str
+    translation_en: Optional[str] = None
+    translation_zh: Optional[str] = None
+    difficulty: Optional[str] = None
+
+
+class LexemeCardInfo(BaseModel):
+    id: int
+    lemma: str
+    sense_label: Optional[str] = None
+    gloss: Optional[str] = None
+    translation_en: Optional[str] = None
+    translation_zh: Optional[str] = None
+    sample_sentence: Optional[str] = None
+    sample_sentence_translation: Optional[str] = None
+
+
+class FlashcardStudyCardRead(BaseModel):
+    card: FlashcardProgressRead
+    sentence: Optional[SentenceCardInfo] = None
+    lexeme: Optional[LexemeCardInfo] = None

@@ -29,6 +29,11 @@ const routes: RouteRecordRaw[] = [
     path: '/tasks',
     name: 'tasks',
     component: () => import('../views/TaskListView.tsx')
+  },
+  {
+    path: '/flashcards',
+    name: 'flashcards',
+    component: () => import('../views/FlashcardsView.tsx')
   }
 ];
 

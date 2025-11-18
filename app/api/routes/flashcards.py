@@ -3,7 +3,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_session
-from app.models.flashcard import FlashcardProgressRead, FlashcardProgressCreate, FlashcardProgressUpdate
+from app.models.flashcard import (
+    FlashcardProgressRead,
+    FlashcardProgressCreate,
+    FlashcardProgressUpdate,
+    FlashcardStudyCardRead,
+)
 from app.services.flashcard_service import FlashcardService
 
 
@@ -14,13 +19,13 @@ def get_flashcard_service(db=Depends(get_session)) -> FlashcardService:
 router = APIRouter(prefix="/flashcards", tags=["flashcards"])
 
 
-@router.get("", response_model=List[FlashcardProgressRead])
+@router.get("", response_model=List[FlashcardStudyCardRead])
 def list_flashcards(
     entity_type: Optional[str] = None,
     due_only: bool = True,
     limit: int = 50,
     service: FlashcardService = Depends(get_flashcard_service),
-) -> List[FlashcardProgressRead]:
+) -> List[FlashcardStudyCardRead]:
     if due_only:
         return service.list_due(entity_type=entity_type, limit=limit)
     raise NotImplementedError("Listing all flashcards is not supported yet")

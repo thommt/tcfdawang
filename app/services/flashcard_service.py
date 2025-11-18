@@ -6,8 +6,15 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlmodel import Session as DBSession, select
 
-from app.db.schemas import FlashcardProgress
-from app.models.flashcard import FlashcardProgressRead, FlashcardProgressCreate, FlashcardProgressUpdate
+from app.db.schemas import FlashcardProgress, Sentence, Paragraph, Lexeme, SentenceLexeme
+from app.models.flashcard import (
+    FlashcardProgressRead,
+    FlashcardProgressCreate,
+    FlashcardProgressUpdate,
+    FlashcardStudyCardRead,
+    SentenceCardInfo,
+    LexemeCardInfo,
+)
 
 
 class FlashcardService:
@@ -34,7 +41,7 @@ class FlashcardService:
         self.session.refresh(entity)
         return FlashcardProgressRead.model_validate(entity)
 
-    def list_due(self, *, entity_type: Optional[str] = None, limit: int = 50) -> List[FlashcardProgressRead]:
+    def list_due(self, *, entity_type: Optional[str] = None, limit: int = 50) -> List[FlashcardStudyCardRead]:
         now = datetime.now(timezone.utc)
         statement = select(FlashcardProgress).where(FlashcardProgress.due_at <= now).order_by(FlashcardProgress.due_at)
         if entity_type:
@@ -42,7 +49,11 @@ class FlashcardService:
         if limit:
             statement = statement.limit(limit)
         rows = self.session.exec(statement).all()
-        return [FlashcardProgressRead.model_validate(row) for row in rows]
+        cards: List[FlashcardStudyCardRead] = []
+        for row in rows:
+            study_card = self._build_study_card(row)
+            cards.append(study_card)
+        return cards
 
     def update(self, card_id: int, data: FlashcardProgressUpdate) -> FlashcardProgressRead:
         card = self.session.get(FlashcardProgress, card_id)
@@ -82,3 +93,46 @@ class FlashcardService:
             .where(FlashcardProgress.entity_id == entity_id)
         )
         return self.session.exec(statement).first()
+
+    def _build_study_card(self, entity: FlashcardProgress) -> FlashcardStudyCardRead:
+        sentence_info: Optional[SentenceCardInfo] = None
+        lexeme_info: Optional[LexemeCardInfo] = None
+        if entity.entity_type == "sentence":
+            sentence = self.session.get(Sentence, entity.entity_id)
+            if sentence:
+                paragraph = self.session.get(Paragraph, sentence.paragraph_id)
+                sentence_info = SentenceCardInfo(
+                    id=sentence.id,
+                    paragraph_id=sentence.paragraph_id,
+                    answer_id=paragraph.answer_id if paragraph else None,
+                    text=sentence.text,
+                    translation_en=sentence.translation_en,
+                    translation_zh=sentence.translation_zh,
+                    difficulty=sentence.difficulty,
+                )
+        elif entity.entity_type == "lexeme":
+            lexeme = self.session.get(Lexeme, entity.entity_id)
+            if lexeme:
+                sample = self.session.exec(
+                    select(SentenceLexeme, Sentence)
+                    .join(Sentence, SentenceLexeme.sentence_id == Sentence.id)
+                    .where(SentenceLexeme.lexeme_id == lexeme.id)
+                    .order_by(SentenceLexeme.id)
+                ).first()
+                sample_sentence = sample[1].text if sample else None
+                sample_translation = sample[1].translation_zh if sample else None
+                lexeme_info = LexemeCardInfo(
+                    id=lexeme.id,
+                    lemma=lexeme.lemma,
+                    sense_label=lexeme.sense_label,
+                    gloss=lexeme.gloss,
+                    translation_en=lexeme.translation_en,
+                    translation_zh=lexeme.translation_zh,
+                    sample_sentence=sample_sentence,
+                    sample_sentence_translation=sample_translation,
+                )
+        return FlashcardStudyCardRead(
+            card=FlashcardProgressRead.model_validate(entity),
+            sentence=sentence_info,
+            lexeme=lexeme_info,
+        )
