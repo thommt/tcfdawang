@@ -84,6 +84,8 @@ export default defineComponent({
       return {
         feedback: evalData.feedback as string | undefined,
         score: evalData.score as number | undefined,
+        savedAt: evalData.saved_at as string | undefined,
+        raw: evalData,
       };
     });
 
@@ -135,7 +137,15 @@ export default defineComponent({
 
     const lastCompose = computed(() => {
       const compose = session.value?.progress_state?.last_compose as Record<string, unknown> | undefined;
-      return compose ?? null;
+      if (!compose) return null;
+      return {
+        title: compose.title as string | undefined,
+        text: compose.text as string | undefined,
+        outline: compose.outline as string | undefined,
+        notes: compose.notes as string | undefined,
+        savedAt: compose.saved_at as string | undefined,
+        raw: compose,
+      };
     });
 
     async function saveDraft() {
@@ -194,6 +204,12 @@ export default defineComponent({
       showFinalize.value = true;
       answerTitle.value = question.value?.title ?? '';
       answerText.value = draft.value;
+    }
+
+    function applyComposeSuggestion() {
+      if (lastCompose.value?.text) {
+        draft.value = lastCompose.value.text;
+      }
     }
 
     async function finalize() {
@@ -313,6 +329,53 @@ export default defineComponent({
               {sessionCompleted.value ? '已完成' : '完成 Session'}
             </button>
           </div>
+        </section>
+        <section class="feedback-panel">
+          <h3>最近评估反馈</h3>
+          {lastEval.value ? (
+            <article>
+              <p>
+                得分：{lastEval.value.score ?? '暂无'} · 时间：
+                {lastEval.value.savedAt ? new Date(lastEval.value.savedAt).toLocaleString() : '未知'}
+              </p>
+              <p>反馈：{lastEval.value.feedback ?? '无'}</p>
+              <details>
+                <summary>查看评估详情</summary>
+                <pre>{JSON.stringify(lastEval.value.raw, null, 2)}</pre>
+              </details>
+            </article>
+          ) : (
+            <p>尚未请求评估。</p>
+          )}
+        </section>
+        <section class="feedback-panel">
+          <h3>最近 LLM 生成</h3>
+          {lastCompose.value ? (
+            <article>
+              <p>
+                时间：{lastCompose.value.savedAt ? new Date(lastCompose.value.savedAt).toLocaleString() : '未知'}
+              </p>
+              {lastCompose.value.title && <p>建议标题：{lastCompose.value.title}</p>}
+              {lastCompose.value.text && (
+                <blockquote>
+                  <pre>{lastCompose.value.text}</pre>
+                </blockquote>
+              )}
+              <div class="actions">
+                {lastCompose.value.text && (
+                  <button type="button" onClick={applyComposeSuggestion}>
+                    将生成结果填入草稿
+                  </button>
+                )}
+                <details>
+                  <summary>查看生成 JSON</summary>
+                  <pre>{JSON.stringify(lastCompose.value.raw, null, 2)}</pre>
+                </details>
+              </div>
+            </article>
+          ) : (
+            <p>尚未进行 LLM 生成。</p>
+          )}
         </section>
         <section class="history-panel">
           <h3>任务列表</h3>

@@ -125,6 +125,11 @@ def test_run_eval_task(client: TestClient) -> None:
     assert task["type"] == "eval"
     assert task["status"] == "succeeded"
     assert task["result_summary"]["score"] == 4
+    assert "saved_at" in task["result_summary"]
+    session_data = client.get(f"/sessions/{session_id}").json()
+    last_eval = session_data["progress_state"]["last_eval"]
+    assert last_eval["score"] == 4
+    assert "saved_at" in last_eval
 
 
 def test_run_compose_task(client: TestClient) -> None:
@@ -143,6 +148,11 @@ def test_run_compose_task(client: TestClient) -> None:
     data = task_resp.json()
     assert data["type"] == "compose"
     assert data["result_summary"]["text"] == "Mon texte"
+    assert "saved_at" in data["result_summary"]
+    session_data = client.get(f"/sessions/{session_resp['id']}").json()
+    last_compose = session_data["progress_state"]["last_compose"]
+    assert last_compose["text"] == "Mon texte"
+    assert "saved_at" in last_compose
 
 
 def test_finalize_session_creates_answer(client: TestClient, session: Session) -> None:

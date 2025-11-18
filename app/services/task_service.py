@@ -51,7 +51,8 @@ class TaskService:
                 answer_draft=session_entity.user_answer_draft or "",
             )
             prompt_messages = eval_result.pop("_prompt_messages", None)
-            latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+            saved_at = datetime.now(timezone.utc)
+            latency = int((saved_at - start).total_seconds() * 1000)
             conversation = LLMConversation(
                 session_id=session_id,
                 task_id=task.id,
@@ -67,11 +68,13 @@ class TaskService:
             )
             self.session.add(conversation)
             session_entity.progress_state = session_entity.progress_state or {}
-            session_entity.progress_state["last_eval"] = eval_result
+            eval_payload = dict(eval_result)
+            eval_payload["saved_at"] = saved_at.isoformat()
+            session_entity.progress_state["last_eval"] = eval_payload
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
             task.status = "succeeded"
-            task.result_summary = eval_result
+            task.result_summary = eval_payload
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
             self.session.commit()
@@ -105,7 +108,8 @@ class TaskService:
                 answer_draft=session_entity.user_answer_draft or "",
             )
             prompt_messages = compose_result.pop("_prompt_messages", None)
-            latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+            saved_at = datetime.now(timezone.utc)
+            latency = int((saved_at - start).total_seconds() * 1000)
             conversation = LLMConversation(
                 session_id=session_id,
                 task_id=task.id,
@@ -121,11 +125,13 @@ class TaskService:
             )
             self.session.add(conversation)
             session_entity.progress_state = session_entity.progress_state or {}
-            session_entity.progress_state["last_compose"] = compose_result
+            compose_payload = dict(compose_result)
+            compose_payload["saved_at"] = saved_at.isoformat()
+            session_entity.progress_state["last_compose"] = compose_payload
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
             task.status = "succeeded"
-            task.result_summary = compose_result
+            task.result_summary = compose_payload
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
             self.session.commit()
