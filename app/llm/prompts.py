@@ -34,3 +34,16 @@ COMPOSE_HUMAN_PROMPT = (
     "题目内容: {question_body}\n"
     "提示/草稿:\n{answer_draft}"
 )
+
+STRUCTURE_SYSTEM_PROMPT = (
+    "你是TCF Canada 答案结构分析助手，请把给定的答案拆成若干段落，"
+    "每个段落提供角色(role)和一句话 summary，并列出句子以及可选的中文翻译。"
+    "{format_instructions}"
+)
+
+STRUCTURE_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容: {question_body}\n"
+    "参考答案:\n{answer_text}"
+)

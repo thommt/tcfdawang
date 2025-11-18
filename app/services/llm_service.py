@@ -9,6 +9,7 @@ from app.llm import (
     build_metadata_chain,
     build_evaluation_chain,
     build_compose_chain,
+    build_structure_chain,
 )
 
 
@@ -37,6 +38,7 @@ class QuestionLLMClient:
         self._metadata_chain, self._metadata_parser = build_metadata_chain(self._llm)
         self._eval_chain, self._eval_parser = build_evaluation_chain(self._llm)
         self._compose_chain, self._compose_parser = build_compose_chain(self._llm)
+        self._structure_chain, self._structure_parser = build_structure_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -115,6 +117,30 @@ class QuestionLLMClient:
                     "question_body": question_body,
                     "answer_draft": answer_draft,
                     "format_instructions": self._compose_parser.get_format_instructions(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
+    def structure_answer(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        answer_text: str,
+    ) -> dict:
+        if not answer_text:
+            raise LLMError("暂无可拆解的答案")
+        try:
+            result = self._structure_chain.invoke(
+                {
+                    "question_type": question_type,
+                    "question_title": question_title,
+                    "question_body": question_body,
+                    "answer_text": answer_text,
+                    "format_instructions": self._structure_parser.get_format_instructions(),
                 }
             )
         except Exception as exc:  # pragma: no cover

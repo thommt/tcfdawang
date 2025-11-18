@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -23,3 +23,18 @@ class EvaluationSchema(BaseModel):
 class ComposeAnswerSchema(BaseModel):
     title: str
     text: str
+
+
+class StructureSentenceSchema(BaseModel):
+    text: str
+    translation: Optional[str] = None
+
+
+class StructureParagraphSchema(BaseModel):
+    role: Optional[str] = None
+    summary: Optional[str] = None
+    sentences: List[StructureSentenceSchema] = Field(default_factory=list)
+
+
+class StructureResultSchema(BaseModel):
+    paragraphs: List[StructureParagraphSchema] = Field(default_factory=list)

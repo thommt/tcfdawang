@@ -4,13 +4,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlmodel import Session as DBSession
+from sqlmodel import Session as DBSession, select
 
 from app.db.schemas import (
     Task,
     Session as SessionSchema,
     Question,
     LLMConversation,
+    Answer as AnswerSchema,
+    AnswerGroup as AnswerGroupSchema,
+    Paragraph,
+    Sentence,
 )
 from app.models.fetch_task import TaskRead
 from app.services.llm_service import QuestionLLMClient, LLMError
@@ -151,3 +155,81 @@ class TaskService:
         if not task:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
         return task
+
+    def run_structure_task_for_answer(self, answer_id: int) -> TaskRead:
+        answer = self.session.get(AnswerSchema, answer_id)
+        if not answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        group = self.session.get(AnswerGroupSchema, answer.answer_group_id)
+        question = self.session.get(Question, group.question_id) if group else None
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        task = Task(type="structure", status="pending", payload={"answer_id": answer_id}, session_id=None)
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        try:
+            # Clear existing structure
+            existing_paragraphs = self.session.exec(
+                select(Paragraph).where(Paragraph.answer_id == answer_id)
+            ).all()
+            for paragraph in existing_paragraphs:
+                sentences = self.session.exec(
+                    select(Sentence).where(Sentence.paragraph_id == paragraph.id)
+                ).all()
+                for sentence in sentences:
+                    self.session.delete(sentence)
+                self.session.delete(paragraph)
+            self.session.commit()
+
+            structure = self.llm_client.structure_answer(
+                question_type=question.type,
+                question_title=question.title,
+                question_body=question.body,
+                answer_text=answer.text,
+            )
+            for idx, para in enumerate(structure.get("paragraphs", []), start=1):
+                paragraph = Paragraph(
+                    answer_id=answer_id,
+                    order_index=idx,
+                    role_label=para.get("role"),
+                    summary=para.get("summary"),
+                    extra={},
+                )
+                self.session.add(paragraph)
+                self.session.commit()
+                self.session.refresh(paragraph)
+                for s_idx, sentence_data in enumerate(para.get("sentences", []), start=1):
+                    sentence = Sentence(
+                        paragraph_id=paragraph.id,
+                        order_index=s_idx,
+                        text=sentence_data.get("text", ""),
+                        translation=sentence_data.get("translation"),
+                        extra={},
+                    )
+                    self.session.add(sentence)
+                self.session.commit()
+            conversation = LLMConversation(
+                session_id=None,
+                task_id=task.id,
+                purpose="structure",
+                messages={"answer": answer.text},
+                result=structure,
+                model_name=getattr(self.llm_client, "model", None),
+                latency_ms=None,
+            )
+            self.session.add(conversation)
+            task.status = "succeeded"
+            task.result_summary = structure
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except LLMError as exc:
+            task.status = "failed"
+            task.error_message = str(exc)
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return TaskRead.model_validate(task)

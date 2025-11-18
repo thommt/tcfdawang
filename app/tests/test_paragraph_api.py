@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
 from app.main import app
-from app.api.dependencies import get_session
+from app.api.dependencies import get_session, get_llm_client
 from app.db.schemas import Answer, AnswerGroup, Question, Paragraph, Sentence
 
 
@@ -28,7 +28,20 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
     def override_get_session() -> Generator[Session, None, None]:
         yield session
 
+    class DummyLLM:
+        def structure_answer(self, **kwargs):
+            return {
+                "paragraphs": [
+                    {
+                        "role": "intro",
+                        "summary": "summary",
+                        "sentences": [{"text": "Bonjour", "translation": "Hello"}],
+                    }
+                ]
+            }
+
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     test_client = TestClient(app)
     yield test_client
     app.dependency_overrides.clear()
