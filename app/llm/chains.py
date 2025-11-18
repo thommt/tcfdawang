@@ -15,10 +15,6 @@ from app.llm.prompts import (
     STRUCTURE_HUMAN_PROMPT,
     SENTENCE_TRANSLATION_SYSTEM_PROMPT,
     SENTENCE_TRANSLATION_HUMAN_PROMPT,
-    PHRASE_SPLIT_SYSTEM_PROMPT,
-    PHRASE_SPLIT_HUMAN_PROMPT,
-    PHRASE_SPLIT_QUALITY_SYSTEM_PROMPT,
-    PHRASE_SPLIT_QUALITY_HUMAN_PROMPT,
     CHUNK_SPLIT_SYSTEM_PROMPT,
     CHUNK_SPLIT_HUMAN_PROMPT,
     CHUNK_LEXEME_SYSTEM_PROMPT,
@@ -36,8 +32,6 @@ from app.llm.schemas import (
     ComposeAnswerSchema,
     StructureResultSchema,
     SentenceTranslationResultSchema,
-    PhraseSplitResultSchema,
-    PhraseSplitQualitySchema,
     SentenceChunkResultSchema,
     ChunkLexemeResultSchema,
     AnswerComparisonSchema,
@@ -105,29 +99,6 @@ def build_sentence_translation_chain(llm: BaseChatModel):
     chain = prompt | llm | parser
     return chain, parser
 
-
-def build_phrase_split_chain(llm: BaseChatModel):
-    parser = JsonOutputParser(pydantic_object=PhraseSplitResultSchema)
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", PHRASE_SPLIT_SYSTEM_PROMPT),
-            ("human", PHRASE_SPLIT_HUMAN_PROMPT),
-        ]
-    )
-    chain = prompt | llm | parser
-    return chain, parser, prompt
-
-
-def build_phrase_split_quality_chain(llm: BaseChatModel):
-    parser = JsonOutputParser(pydantic_object=PhraseSplitQualitySchema)
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", PHRASE_SPLIT_QUALITY_SYSTEM_PROMPT),
-            ("human", PHRASE_SPLIT_QUALITY_HUMAN_PROMPT),
-        ]
-    )
-    chain = prompt | llm | parser
-    return chain, parser, prompt
 
 
 def build_chunk_split_chain(llm: BaseChatModel):

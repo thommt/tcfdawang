@@ -61,47 +61,12 @@ SENTENCE_TRANSLATION_HUMAN_PROMPT = (
     "待处理的句子如下：\n{sentences_block}"
 )
 
-PHRASE_SPLIT_SYSTEM_PROMPT = (
+CHUNK_SPLIT_SYSTEM_PROMPT = (
     "你是TCF Canada 句子拆分助手。请把句子拆成值得背诵记忆的较难的单词或词组，成为“记忆小块”"
-    "例如形容词+名词、动词+搭配(动词可还原为词典形式)、介词短语或固定表达，或者高难度的单词。"
+    "例如形容词+名词、动词+名词(动词可还原为词典形式)、介词短语或固定表达，或者高难度的单词。"
     "每个“记忆小块”必须保留句子中所有语法不可或缺的词：冠词、介词、代词、否定成分等都要包含在内，"
     "请尽量让拆分后的“记忆小块”覆盖整个句子，确保用这些生成的“记忆小块”组合后几乎能还原原句。"
     "不要限制一个“记忆小块”的长度，也不要限制生成后的“记忆小块”的数量，但要跳过非常简单、无记忆价值的词或词组。"
-    "如果上次拆分反馈指出了问题（例如缺失冠词、覆盖不足、碎片化等），本次必须针对这些问题进行修正并避免重复。"
-    "每个“记忆小块”需包含 lemma、中文 sense_label、英/中文翻译、简短 gloss、词性(pos) 与可选难度等级。{format_instructions}"
-)
-
-PHRASE_SPLIT_HUMAN_PROMPT = (
-    "题目类型: {question_type}\n"
-    "题目标题: {question_title}\n"
-    "题目内容摘要: {question_body}\n"
-    "目标句子: {sentence_text}\n"
-    "拆分示例:\n"
-    "原句：Il est essentiel que les entreprises aident leurs nouveaux collaborateurs à s’adapter et à s’intégrer pour plusieurs raisons.\n"
-    "拆分词块：\n"
-    "1. Il est essentiel que\n"
-    "2. les entreprises aident leurs nouveaux collaborateurs\n"
-    "3. à s’adapter et à s’intégrer\n"
-    "4. pour plusieurs raisons\n"
-    "上次拆分反馈: {known_issues}"
-)
-
-PHRASE_SPLIT_QUALITY_SYSTEM_PROMPT = (
-    "你是TCF Canada 句子拆分质检助手。请根据原句与拆分结果，判断词块是否完整、覆盖是否充分、是否保留必要的语法成分，以及拆分出的词块是否与翻译对应。"
-    "只有在出现明显问题（如确实缺少必要冠词/介词、覆盖率严重不足、出现大量孤立单词、翻译与短语含义完全不符）时才判定为不合格；若整体合理但存在轻微差异，请视为合格并返回空 issues。"
-    "输出 JSON，包含 is_valid(bool) 与 issues(字符串列表)。{format_instructions}"
-)
-
-PHRASE_SPLIT_QUALITY_HUMAN_PROMPT = (
-    "题目类型: {question_type}\n"
-    "题目标题: {question_title}\n"
-    "题目内容摘要: {question_body}\n"
-    "原句: {sentence_text}\n"
-    "拆分词块:\n{phrases_block}"
-)
-
-CHUNK_SPLIT_SYSTEM_PROMPT = (
-    "你是TCF Canada 句子拆分助手。请将句子拆成3-6个方便背诵的记忆块，每个块包含完整语法成分并覆盖整句。"
     "每个块应返回原文与英文/中文解释，可根据语义类型给出 chunk_type(如 intro/body/conclusion)。{format_instructions}"
 )
 
@@ -121,7 +86,9 @@ CHUNK_SPLIT_HUMAN_PROMPT = (
 )
 
 CHUNK_LEXEME_SYSTEM_PROMPT = (
-    "你是TCF Canada 关键词提取助手。给定记忆块列表，请为每个 chunk 找出1-2个值得背诵的关键词/词组，"
+    "你是TCF Canada 关键词提取助手。给定记忆块列表，请为每个 chunk 找出若干个核心的、值得背诵的关键词/词组，"
+    "例如动词词组的动词（还原为词典形式）、形容词、名词短语中的核心名词等。"
+    "但无需生成太过简单的词语（如冠词、介词、代词等），或者过于常见的、基本的词语。"
     "输出 headword、sense_label、gloss、翻译、pos_tags、难度等级(A1~C2)。\n"
     "请尽量复用 chunk 中的词语，避免重复或过于简单的词。{format_instructions}"
 )

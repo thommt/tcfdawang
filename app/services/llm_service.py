@@ -11,11 +11,11 @@ from app.llm import (
     build_compose_chain,
     build_structure_chain,
     build_sentence_translation_chain,
-    build_phrase_split_chain,
-    build_phrase_split_quality_chain,
     build_chunk_split_chain,
     build_chunk_lexeme_chain,
     build_answer_comparator_chain,
+    build_gap_highlight_chain,
+    build_refine_answer_chain,
 )
 
 
@@ -48,16 +48,6 @@ class QuestionLLMClient:
         self._sentence_translation_chain, self._sentence_translation_parser = build_sentence_translation_chain(
             self._llm
         )
-        (
-            self._phrase_split_chain,
-            self._phrase_split_parser,
-            self._phrase_split_prompt,
-        ) = build_phrase_split_chain(self._llm)
-        (
-            self._phrase_quality_chain,
-            self._phrase_quality_parser,
-            self._phrase_quality_prompt,
-        ) = build_phrase_split_quality_chain(self._llm)
         (
             self._chunk_split_chain,
             self._chunk_split_parser,
@@ -419,86 +409,6 @@ class QuestionLLMClient:
             )
         except Exception as exc:  # pragma: no cover
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
-        return result
-
-    def split_sentence(
-        self,
-        *,
-        question_type: str,
-        question_title: str,
-        question_body: str,
-        sentence_text: str,
-        known_issues: list[str] | None = None,
-    ) -> dict:
-        if not sentence_text:
-            raise LLMError("暂无可拆分的句子")
-        if not known_issues:
-            issues_block = "无"
-        else:
-            issues_block = "上次拆分存在以下问题：\n" + "\n".join(f"- {issue}" for issue in known_issues)
-        try:
-            prompt_messages = self._phrase_split_prompt.format_messages(
-                question_type=question_type,
-                question_title=question_title,
-                question_body=question_body,
-                sentence_text=sentence_text,
-                known_issues=issues_block,
-                format_instructions=self._phrase_split_parser.get_format_instructions(),
-            )
-            raw = self._llm.invoke(prompt_messages)
-            response_text = getattr(raw, "content", raw)
-            if isinstance(response_text, list):
-                response_text = "\n".join(
-                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
-                    for item in response_text
-                )
-            parsed = self._phrase_split_parser.parse(response_text)
-            if hasattr(parsed, "model_dump"):
-                result = parsed.model_dump()
-            else:
-                result = dict(parsed)
-            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
-        except Exception as exc:  # pragma: no cover
-            print("Exception occurred:", exc)  # Debugging line
-            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
-        return result
-
-    def assess_phrase_split_quality(
-        self,
-        *,
-        question_type: str,
-        question_title: str,
-        question_body: str,
-        sentence_text: str,
-        phrases: list[dict],
-    ) -> dict:
-        phrases_block = "\n".join(
-            f"- {item.get('phrase') or item.get('lemma') or ''}".strip() for item in phrases
-        )
-        try:
-            prompt_messages = self._phrase_quality_prompt.format_messages(
-                question_type=question_type,
-                question_title=question_title,
-                question_body=question_body,
-                sentence_text=sentence_text,
-                phrases_block=phrases_block,
-                format_instructions=self._phrase_quality_parser.get_format_instructions(),
-            )
-            raw = self._llm.invoke(prompt_messages)
-            response_text = getattr(raw, "content", raw)
-            if isinstance(response_text, list):
-                response_text = "\n".join(
-                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
-                    for item in response_text
-                )
-            parsed = self._phrase_quality_parser.parse(response_text)
-            if hasattr(parsed, "model_dump"):
-                result = parsed.model_dump()
-            else:
-                result = dict(parsed)
-            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
-        except Exception as exc:  # pragma: no cover
-            raise LLMError("LLM 请求失败，请检查拆分质量") from exc
         return result
 
     def _serialize_messages(self, messages):
