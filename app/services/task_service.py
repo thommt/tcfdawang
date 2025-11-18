@@ -405,7 +405,8 @@ class TaskService:
                 if not lemma:
                     continue
                 sense_label = (phrase.get("sense_label") or "").strip()
-                hash_value = self._build_lexeme_hash(lemma, sense_label)
+                phrase_text = (phrase.get("phrase") or "").strip()
+                hash_value = self._build_lexeme_hash(lemma, sense_label, phrase_text)
                 lexeme = self.session.exec(select(Lexeme).where(Lexeme.hash == hash_value)).first()
                 if not lexeme:
                     lexeme = Lexeme(
@@ -465,9 +466,13 @@ class TaskService:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
-    def _build_lexeme_hash(self, lemma: str, sense_label: str) -> str:
-        normalized_lemma = lemma.strip().lower()
-        normalized_sense = (sense_label or "").strip().lower()
+    def _build_lexeme_hash(self, lemma: str, sense_label: str, phrase_text: str) -> str:
+        normalized_lemma = " ".join(lemma.strip().lower().split())
+        normalized_sense = " ".join((sense_label or "").strip().lower().split())
+        normalized_phrase = " ".join((phrase_text or "").strip().lower().split())
+        parts = [normalized_lemma]
         if normalized_sense:
-            return f"{normalized_lemma}::{normalized_sense}"
-        return normalized_lemma
+            parts.append(normalized_sense)
+        if normalized_phrase:
+            parts.append(normalized_phrase)
+        return "::".join(parts)
