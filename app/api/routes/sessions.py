@@ -176,3 +176,8 @@ def complete_learning(
     service: SessionService = Depends(get_session_service),
 ) -> SessionRead:
     return service.mark_learning_complete(session_id)
+
+
+@sessions_router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_session(session_id: int, service: SessionService = Depends(get_session_service)) -> None:
+    service.delete_session(session_id)

@@ -64,6 +64,26 @@ class SessionService:
         self.session.refresh(entity)
         return self._to_session_read(entity)
 
+    def delete_session(self, session_id: int) -> None:
+        session_entity = self._get_session_entity(session_id)
+        tasks = self.session.exec(select(Task).where(Task.session_id == session_id)).all()
+        for task in tasks:
+            conversation = self.session.exec(
+                select(LLMConversation).where(LLMConversation.task_id == task.id)
+            ).first()
+            if conversation:
+                self.session.delete(conversation)
+            self.session.delete(task)
+        conversations = self.session.exec(
+            select(LLMConversation)
+            .where(LLMConversation.session_id == session_id)
+            .where(LLMConversation.task_id.is_(None))
+        ).all()
+        for log in conversations:
+            self.session.delete(log)
+        self.session.delete(session_entity)
+        self.session.commit()
+
     def get_session(self, session_id: int) -> SessionRead:
         session = self._get_session_entity(session_id)
         return self._to_session_read(session)

@@ -572,3 +572,19 @@ def test_delete_non_latest_answer_fails(client: TestClient, session: Session) ->
     assert resp.status_code == 400
     assert client.get(f"/answers/{first['id']}").status_code == 200
     assert client.delete(f"/answers/{second['id']}").status_code == 204
+
+
+def test_delete_session_removes_tasks_and_logs(client: TestClient) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Texte"},
+    ).json()
+    session_id = session_resp["id"]
+    eval_resp = client.post(f"/sessions/{session_id}/tasks/eval")
+    assert eval_resp.status_code == 201
+    history_before = client.get(f"/sessions/{session_id}/history").json()
+    assert history_before["tasks"]
+    delete_resp = client.delete(f"/sessions/{session_id}")
+    assert delete_resp.status_code == 204
+    assert client.get(f"/sessions/{session_id}").status_code == 404
