@@ -4,6 +4,7 @@ from .answer import AnswerGroup, Answer, Session
 from .conversation import LLMConversation
 from .paragraph import Paragraph, Sentence
 from .lexeme import Lexeme, SentenceLexeme
+from .flashcard import FlashcardProgress
 
 __all__ = [
     "Question",
@@ -17,4 +18,5 @@ __all__ = [
     "Sentence",
     "Lexeme",
     "SentenceLexeme",
+    "FlashcardProgress",
 ]

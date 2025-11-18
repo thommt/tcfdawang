@@ -22,6 +22,7 @@ def init_db() -> None:
     _ensure_session_columns(engine)
     _ensure_task_columns(engine)
     _ensure_sentence_columns(engine)
+    _ensure_flashcard_columns(engine)
 
 
 def _ensure_session_columns(engine) -> None:
@@ -57,3 +58,13 @@ def _ensure_sentence_columns(engine) -> None:
             conn.execute(text("ALTER TABLE sentences ADD COLUMN translation_zh TEXT"))
         if "difficulty" not in columns:
             conn.execute(text("ALTER TABLE sentences ADD COLUMN difficulty TEXT"))
+
+
+def _ensure_flashcard_columns(engine) -> None:
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info('flashcard_progress')"))
+        columns = {row[1] for row in result}
+        if not columns:
+            return
+        if "interval_days" not in columns:
+            conn.execute(text("ALTER TABLE flashcard_progress ADD COLUMN interval_days INTEGER DEFAULT 1"))
