@@ -430,3 +430,33 @@ def test_delete_single_answer(client: TestClient, session: Session) -> None:
     assert session.exec(select(Sentence).where(Sentence.paragraph_id == paragraph.id)).all() == []
     assert session.exec(select(SentenceChunk).where(SentenceChunk.sentence_id == sentence.id)).all() == []
     assert session.exec(select(FlashcardProgress).where(FlashcardProgress.entity_type == "sentence")).all() == []
+
+
+def test_delete_non_latest_answer_fails(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client)
+    group = client.post(
+        "/answer-groups",
+        json={"question_id": question_id, "title": "Group"},
+    ).json()
+    first = client.post(
+        "/answers",
+        json={
+            "answer_group_id": group["id"],
+            "title": "V1",
+            "text": "Texte",
+            "version_index": 1,
+        },
+    ).json()
+    second = client.post(
+        "/answers",
+        json={
+            "answer_group_id": group["id"],
+            "title": "V2",
+            "text": "Texte2",
+            "version_index": 2,
+        },
+    ).json()
+    resp = client.delete(f"/answers/{first['id']}")
+    assert resp.status_code == 400
+    assert client.get(f"/answers/{first['id']}").status_code == 200
+    assert client.delete(f"/answers/{second['id']}").status_code == 204

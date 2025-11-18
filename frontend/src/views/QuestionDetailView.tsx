@@ -4,7 +4,7 @@ import { useQuestionStore } from '../stores/questions';
 import { useSessionStore } from '../stores/sessions';
 import type { Question } from '../types/question';
 import { fetchQuestionById } from '../api/questions';
-import { fetchAnswerGroups } from '../api/answerGroups';
+import { fetchAnswerGroups, deleteAnswerGroup } from '../api/answerGroups';
 import type { AnswerGroup } from '../types/answer';
 
 export default defineComponent({
@@ -20,6 +20,8 @@ export default defineComponent({
     const error = ref('');
     const answerGroups = ref<AnswerGroup[]>([]);
     const groupLoading = ref(false);
+    const deletingGroupId = ref<number | null>(null);
+    const groupError = ref('');
 
     const relatedSessions = computed(() => sessionStore.sessionsByQuestion(questionId));
 
@@ -36,6 +38,7 @@ export default defineComponent({
           questionStore.items.push(fetched);
         }
         groupLoading.value = true;
+        groupError.value = '';
         answerGroups.value = await fetchAnswerGroups(questionId);
         groupLoading.value = false;
         if (!sessionStore.sessions.length) {
@@ -52,6 +55,24 @@ export default defineComponent({
     async function createSession() {
       const session = await sessionStore.createSession(questionId);
       router.push(`/sessions/${session.id}`);
+    }
+
+    async function handleDeleteGroup(groupId: number) {
+      if (deletingGroupId.value) return;
+      if (!window.confirm('确定要删除整个答案组及其版本吗？该操作不可恢复。')) {
+        return;
+      }
+      deletingGroupId.value = groupId;
+      groupError.value = '';
+      try {
+        await deleteAnswerGroup(groupId);
+        await loadQuestion();
+      } catch (err) {
+        groupError.value = '删除答案组失败';
+        console.error(err);
+      } finally {
+        deletingGroupId.value = null;
+      }
     }
 
     onMounted(() => {
@@ -139,9 +160,10 @@ export default defineComponent({
         </section>
 
         <section class="answer-groups">
-          <header>
-            <h3>答案组</h3>
-          </header>
+         <header>
+           <h3>答案组</h3>
+         </header>
+          {groupError.value && <p class="error">{groupError.value}</p>}
           {groupLoading.value && <p>加载答案组...</p>}
           {!groupLoading.value && answerGroups.value.length ? (
             answerGroups.value.map((group) => (
@@ -166,6 +188,14 @@ export default defineComponent({
                     </li>
                   ))}
                 </ul>
+                <button
+                  type="button"
+                  class="danger"
+                  onClick={() => handleDeleteGroup(group.id)}
+                  disabled={deletingGroupId.value === group.id}
+                >
+                  {deletingGroupId.value === group.id ? '删除中...' : '删除整个答案组'}
+                </button>
               </article>
             ))
           ) : (

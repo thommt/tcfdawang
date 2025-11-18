@@ -39,6 +39,8 @@ export default defineComponent({
     const chunkMessage = ref('');
     const lexemeError = ref('');
     const lexemeMessage = ref('');
+    const deleting = ref(false);
+    const deleteError = ref('');
 
     async function loadParagraphStructure() {
       paragraphs.value = await fetchParagraphsByAnswer(answerId);
@@ -191,9 +193,17 @@ export default defineComponent({
       return extractLexemeIssues(sentence.extra);
     }
 
+    const canDeleteAnswer = computed(() => {
+      if (!answer.value || !group.value) return false;
+      const versions = group.value.answers.map((item) => item.version_index);
+      if (!versions.length) return false;
+      const maxVersion = Math.max(...versions);
+      return answer.value.version_index === maxVersion;
+    });
+
     async function handleDeleteAnswer() {
-      if (!answer.value || deleting.value) return;
-      if (!window.confirm('确定要删除当前答案版本吗？该操作不可恢复。')) {
+      if (!answer.value || deleting.value || !canDeleteAnswer.value) return;
+      if (!window.confirm('确定要删除该答案版本吗？仅允许删除最新版本。')) {
         return;
       }
       deleting.value = true;
@@ -264,7 +274,13 @@ export default defineComponent({
             <button type="button" onClick={startReviewSession}>
               基于此答案创建复习 Session
             </button>
-            <button type="button" class="danger" onClick={handleDeleteAnswer} disabled={deleting.value}>
+            <button
+              type="button"
+              class="danger"
+              onClick={handleDeleteAnswer}
+              disabled={deleting.value || !canDeleteAnswer.value}
+              title={!canDeleteAnswer.value ? '只能删除最新版' : ''}
+            >
               {deleting.value ? '删除中...' : '删除该答案版本'}
             </button>
             <div class="flashcard-shortcuts">

@@ -10,3 +10,7 @@ export async function fetchAnswerGroupById(groupId: number): Promise<AnswerGroup
   const response = await apiClient.get<AnswerGroup>(`/answer-groups/${groupId}`);
   return response.data;
 }
+
+export async function deleteAnswerGroup(groupId: number): Promise<void> {
+  await apiClient.delete(`/answer-groups/${groupId}`);
+}

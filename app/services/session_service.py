@@ -170,6 +170,16 @@ class SessionService:
         answer = self.session.get(AnswerSchema, answer_id)
         if not answer:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        latest = self.session.exec(
+            select(AnswerSchema)
+            .where(AnswerSchema.answer_group_id == answer.answer_group_id)
+            .order_by(AnswerSchema.version_index.desc())
+        ).first()
+        if latest and latest.id != answer.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="只能删除最新版本的答案",
+            )
         self._delete_answer_dependencies(answer_id)
         self.session.delete(answer)
         self.session.commit()
