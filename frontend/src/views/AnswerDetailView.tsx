@@ -1,16 +1,19 @@
 import { defineComponent, ref, onMounted, computed } from 'vue';
-import { useRoute, RouterLink } from 'vue-router';
+import { useRoute, RouterLink, useRouter } from 'vue-router';
 import { fetchAnswerById, fetchAnswerHistory } from '../api/answers';
 import { fetchAnswerGroupById } from '../api/answerGroups';
 import { fetchQuestionById } from '../api/questions';
 import { fetchParagraphsByAnswer, runStructureTask } from '../api/paragraphs';
 import type { Answer, AnswerGroup, Paragraph, AnswerHistory } from '../types/answer';
 import type { Question, FetchTask } from '../types/question';
+import { useSessionStore } from '../stores/sessions';
 
 export default defineComponent({
   name: 'AnswerDetailView',
   setup() {
     const route = useRoute();
+    const router = useRouter();
+    const sessionStore = useSessionStore();
     const answerId = Number(route.params.id);
     const answer = ref<Answer | null>(null);
     const group = ref<AnswerGroup | null>(null);
@@ -63,6 +66,17 @@ export default defineComponent({
         throw err;
       } finally {
         loading.value = false;
+      }
+    }
+
+    async function startReviewSession() {
+      reviewError.value = '';
+      try {
+        const session = await sessionStore.createReviewSession(answerId);
+        router.push(`/sessions/${session.id}`);
+      } catch (err) {
+        reviewError.value = '创建复习 Session 失败';
+        console.error(err);
       }
     }
 
@@ -132,6 +146,10 @@ export default defineComponent({
             </header>
             <p class="timestamp">创建时间：{new Date(answer.value.created_at).toLocaleString()}</p>
             <pre>{answer.value.text}</pre>
+            <button type="button" onClick={startReviewSession}>
+              基于此答案创建复习 Session
+            </button>
+            {reviewError.value && <p class="error">{reviewError.value}</p>}
           </article>
         )}
         <section class="paragraphs">
@@ -265,3 +283,4 @@ export default defineComponent({
     );
   },
 });
+    const reviewError = ref('');

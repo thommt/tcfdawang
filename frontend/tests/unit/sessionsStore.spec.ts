@@ -85,6 +85,21 @@ describe('Session Store', () => {
     historySpy.mockRestore();
   });
 
+  it('creates review session from answer', async () => {
+    const reviewSpy = vi.spyOn(api, 'createReviewSession').mockResolvedValue({
+      ...mockSession,
+      id: 2,
+      session_type: 'review',
+      user_answer_draft: 'Existing answer',
+    });
+    const store = useSessionStore();
+    const session = await store.createReviewSession(5);
+    expect(reviewSpy).toHaveBeenCalledWith(5);
+    expect(session.session_type).toBe('review');
+    expect(store.currentSession?.id).toBe(2);
+    reviewSpy.mockRestore();
+  });
+
   it('composes answer via LLM task', async () => {
     vi.spyOn(api, 'fetchSessionById').mockResolvedValue({
       ...mockSession,

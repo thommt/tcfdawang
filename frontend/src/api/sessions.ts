@@ -46,3 +46,8 @@ export async function fetchSessionHistory(sessionId: number): Promise<SessionHis
   const response = await apiClient.get<SessionHistory>(`${resource}/${sessionId}/history`);
   return response.data;
 }
+
+export async function createReviewSession(answerId: number): Promise<Session> {
+  const response = await apiClient.post<Session>(`/answers/${answerId}/sessions`, {});
+  return response.data;
+}

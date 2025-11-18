@@ -230,3 +230,25 @@ def test_session_history_endpoint(client: TestClient) -> None:
     assert len(history["tasks"]) == 1
     assert history["tasks"][0]["type"] == "eval"
     assert any(conv["purpose"] == "eval" for conv in history["conversations"])
+
+
+def test_create_review_session(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Bonjour"},
+    ).json()
+    finalize_payload = {
+        "group_title": "复习题",
+        "answer_title": "首版答案",
+        "answer_text": "Un texte",
+    }
+    finalize_resp = client.post(f"/sessions/{session_resp['id']}/finalize", json=finalize_payload)
+    answer_id = finalize_resp.json()["answer_id"]
+
+    review_resp = client.post(f"/answers/{answer_id}/sessions")
+    assert review_resp.status_code == 201
+    review_session = review_resp.json()
+    assert review_session["session_type"] == "review"
+    assert review_session["question_id"] == question_id
+    assert review_session["user_answer_draft"] == "Un texte"

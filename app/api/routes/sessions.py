@@ -119,6 +119,11 @@ def get_answer_history(answer_id: int, service: SessionService = Depends(get_ses
     return service.get_answer_history(answer_id)
 
 
+@answers_router.post("/{answer_id}/sessions", response_model=SessionRead, status_code=status.HTTP_201_CREATED)
+def create_review_session(answer_id: int, service: SessionService = Depends(get_session_service)) -> SessionRead:
+    return service.create_review_session(answer_id)
+
+
 @sessions_router.get("/{session_id}/history", response_model=SessionHistoryRead)
 def get_session_history(
     session_id: int, service: SessionService = Depends(get_session_service)

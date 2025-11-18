@@ -10,6 +10,7 @@ import {
   runComposeTask,
   finalizeSession as finalizeSessionApi,
   fetchSessionHistory,
+  createReviewSession as createReviewSessionApi,
 } from '../api/sessions';
 
 interface State {
@@ -67,6 +68,12 @@ export const useSessionStore = defineStore('sessions', {
     async createSession(questionId: number) {
       const payload: SessionPayload = { question_id: questionId };
       const session = await createSessionApi(payload);
+      this.sessions.push(session);
+      this.currentSession = session;
+      return session;
+    },
+    async createReviewSession(answerId: number) {
+      const session = await createReviewSessionApi(answerId);
       this.sessions.push(session);
       this.currentSession = session;
       return session;

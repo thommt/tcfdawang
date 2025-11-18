@@ -170,6 +170,29 @@ class SessionService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
         return self._to_answer_read(answer)
 
+    def create_review_session(self, answer_id: int) -> SessionRead:
+        answer = self.session.get(AnswerSchema, answer_id)
+        if not answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+        group = self.session.get(AnswerGroupSchema, answer.answer_group_id)
+        if not group:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer group not found")
+        question = self.session.get(Question, group.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        entity = SessionSchema(
+            question_id=question.id,
+            answer_id=answer.id,
+            session_type="review",
+            status="draft",
+            user_answer_draft=answer.text,
+            progress_state={"review_source_answer_id": answer.id},
+        )
+        self.session.add(entity)
+        self.session.commit()
+        self.session.refresh(entity)
+        return self._to_session_read(entity)
+
     def get_session_history(self, session_id: int) -> SessionHistoryRead:
         session_entity = self._get_session_entity(session_id)
         tasks = self.session.exec(
