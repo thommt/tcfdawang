@@ -3,7 +3,9 @@ import { useRoute, RouterLink } from 'vue-router';
 import { useSessionStore } from '../stores/sessions';
 import { useQuestionStore } from '../stores/questions';
 import type { Session } from '../types/session';
+import type { Answer } from '../types/answer';
 import { fetchQuestionById } from '../api/questions';
+import { fetchAnswerById } from '../api/answers';
 import type { Question } from '../types/question';
 
 export default defineComponent({
@@ -18,6 +20,9 @@ export default defineComponent({
     const evalRunning = ref(false);
     const finalizing = ref(false);
     const question = ref<Question | null>(null);
+    const reviewSourceAnswer = ref<Answer | null>(null);
+    const reviewSourceLoading = ref(false);
+    const reviewSourceError = ref('');
 
     const showFinalize = ref(false);
     const answerTitle = ref('');
@@ -35,6 +40,7 @@ export default defineComponent({
       sessionHistory.value ? sessionHistory.value.tasks.filter((task) => task.type === 'compose') : []
     );
     const conversations = computed(() => sessionHistory.value?.conversations ?? []);
+    const isReviewSession = computed(() => session.value?.session_type === 'review');
     const lastEval = computed(() => {
       const evalData = session.value?.progress_state?.last_eval as Record<string, unknown> | undefined;
       if (!evalData) return null;
@@ -43,6 +49,23 @@ export default defineComponent({
         score: evalData.score as number | undefined,
       };
     });
+
+    async function loadReviewSource(answerId: number | null) {
+      if (!answerId) {
+        reviewSourceAnswer.value = null;
+        return;
+      }
+      reviewSourceLoading.value = true;
+      reviewSourceError.value = '';
+      try {
+        reviewSourceAnswer.value = await fetchAnswerById(answerId);
+      } catch (err) {
+        reviewSourceError.value = '无法加载源答案';
+        console.error(err);
+      } finally {
+        reviewSourceLoading.value = false;
+      }
+    }
 
     async function loadData() {
       await sessionStore.loadSession(sessionId);
@@ -55,6 +78,7 @@ export default defineComponent({
         } else {
           question.value = await fetchQuestionById(current.question_id);
         }
+        await loadReviewSource(reviewSourceId.value);
       }
       await sessionStore.loadSessionHistory(sessionId);
     }
@@ -64,6 +88,7 @@ export default defineComponent({
       (value) => {
         if (value) {
           draft.value = value.user_answer_draft ?? '';
+          loadReviewSource(reviewSourceId.value);
         }
       }
     );
@@ -146,6 +171,32 @@ export default defineComponent({
               {question.value.year}/{question.value.month} · {question.value.type}
             </p>
           </header>
+        )}
+        {isReviewSession.value && (
+          <section class="review-context">
+            <h3>复习模式</h3>
+            <p>此 Session 基于已有答案生成，请在原答案基础上优化、扩展并记录新的思路。</p>
+            {reviewSourceLoading.value && <p>源答案加载中...</p>}
+            {reviewSourceError.value && <p class="error">{reviewSourceError.value}</p>}
+            {reviewSourceAnswer.value && (
+              <article class="source-answer-card">
+                <header>
+                  <strong>原答案：{reviewSourceAnswer.value.title}</strong>
+                  <RouterLink to={`/answers/${reviewSourceAnswer.value.id}`} class="link">
+                    查看详情
+                  </RouterLink>
+                </header>
+                <p>
+                  版本：V{reviewSourceAnswer.value.version_index} · 创建时间：
+                  {new Date(reviewSourceAnswer.value.created_at).toLocaleString()}
+                </p>
+                <details>
+                  <summary>展开原文</summary>
+                  <pre>{reviewSourceAnswer.value.text}</pre>
+                </details>
+              </article>
+            )}
+          </section>
         )}
 
         <section class="workspace">
@@ -294,3 +345,9 @@ export default defineComponent({
     );
   },
 });
+    const reviewSourceId = computed(() => {
+      const current = session.value;
+      if (!current) return null;
+      const fromState = (current.progress_state?.review_source_answer_id as number | undefined) ?? null;
+      return fromState || current.answer_id || null;
+    });
