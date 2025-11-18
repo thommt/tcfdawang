@@ -210,7 +210,9 @@ class TaskService:
                             paragraph_id=paragraph.id,
                             order_index=s_idx,
                             text=sentence_data.get("text", ""),
-                            translation=sentence_data.get("translation"),
+                            translation_en=sentence_data.get("translation"),
+                            translation_zh=sentence_data.get("translation_zh"),
+                            difficulty=sentence_data.get("difficulty"),
                             extra={},
                         )
                         self.session.add(sentence)

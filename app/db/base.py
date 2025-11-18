@@ -21,6 +21,7 @@ def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_session_columns(engine)
     _ensure_task_columns(engine)
+    _ensure_sentence_columns(engine)
 
 
 def _ensure_session_columns(engine) -> None:
@@ -44,3 +45,15 @@ def _ensure_task_columns(engine) -> None:
         if "answer_id" not in columns:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN answer_id INTEGER"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_answer_id ON tasks(answer_id)"))
+
+
+def _ensure_sentence_columns(engine) -> None:
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info('sentences')"))
+        columns = {row[1] for row in result}
+        if "translation_en" not in columns:
+            conn.execute(text("ALTER TABLE sentences ADD COLUMN translation_en TEXT"))
+        if "translation_zh" not in columns:
+            conn.execute(text("ALTER TABLE sentences ADD COLUMN translation_zh TEXT"))
+        if "difficulty" not in columns:
+            conn.execute(text("ALTER TABLE sentences ADD COLUMN difficulty TEXT"))

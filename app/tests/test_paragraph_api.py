@@ -36,7 +36,14 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
                     {
                         "role": "body",
                         "summary": "LLM summary",
-                        "sentences": [{"text": "Salut", "translation": "Hi"}],
+                        "sentences": [
+                            {
+                                "text": "Salut",
+                                "translation": "Hi",
+                                "translation_zh": "你好",
+                                "difficulty": "B1",
+                            }
+                        ],
                     }
                 ]
             }
@@ -74,7 +81,7 @@ def _create_answer(session: Session) -> int:
     session.add(para)
     session.commit()
     session.refresh(para)
-    sent = Sentence(paragraph_id=para.id, order_index=1, text="Bonjour", translation="Hello")
+    sent = Sentence(paragraph_id=para.id, order_index=1, text="Bonjour", translation_en="Hello")
     session.add(sent)
     session.commit()
     return answer.id
@@ -109,7 +116,9 @@ def test_run_structure_task(client: TestClient, session: Session) -> None:
     ).all()
     assert len(sentences) == 1
     assert sentences[0].text == "Salut"
-    assert sentences[0].translation == "Hi"
+    assert sentences[0].translation_en == "Hi"
+    assert sentences[0].translation_zh == "你好"
+    assert sentences[0].difficulty == "B1"
 
 
 def test_structure_task_failure_keeps_previous_paragraphs(client: TestClient, session: Session) -> None:

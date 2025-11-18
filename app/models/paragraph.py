@@ -9,7 +9,9 @@ class SentenceRead(BaseModel):
     paragraph_id: int
     order_index: int
     text: str
-    translation: Optional[str] = None
+    translation_en: Optional[str] = None
+    translation_zh: Optional[str] = None
+    difficulty: Optional[str] = None
     extra: dict = Field(default_factory=dict)
     created_at: datetime
 

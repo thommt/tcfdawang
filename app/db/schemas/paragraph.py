@@ -29,7 +29,9 @@ class Sentence(SQLModel, table=True):
     paragraph_id: int = Field(foreign_key="paragraphs.id", index=True)
     order_index: int = Field(default=1)
     text: str
-    translation: Optional[str] = Field(default=None)
+    translation_en: Optional[str] = Field(default=None)
+    translation_zh: Optional[str] = Field(default=None)
+    difficulty: Optional[str] = Field(default=None)
     extra: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON, nullable=False, default=dict),
