@@ -1,5 +1,5 @@
 import { defineComponent, ref, onMounted, watch, computed } from 'vue';
-import { useRoute, RouterLink } from 'vue-router';
+import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useSessionStore } from '../stores/sessions';
 import { useQuestionStore } from '../stores/questions';
 import type { Session } from '../types/session';
@@ -13,6 +13,7 @@ export default defineComponent({
   setup() {
     const route = useRoute();
     const sessionId = Number(route.params.id);
+    const router = useRouter();
     const sessionStore = useSessionStore();
     const questionStore = useQuestionStore();
     const draft = ref('');
@@ -27,6 +28,8 @@ export default defineComponent({
     const showFinalize = ref(false);
     const answerTitle = ref('');
     const answerText = ref('');
+    const deletingSession = ref(false);
+    const deleteError = ref('');
 
     const sessionCompleted = computed(() => session.value?.status === 'completed');
     const currentPhase = computed(() => {
@@ -46,6 +49,16 @@ export default defineComponent({
       sessionHistory.value ? sessionHistory.value.tasks.filter((task) => task.type === 'compose') : []
     );
     const conversations = computed(() => sessionHistory.value?.conversations ?? []);
+    const canEditDraft = computed(() => {
+      const current = session.value;
+      if (!current) return false;
+      return !current.answer_id && !sessionCompleted.value;
+    });
+    const canDeleteSession = computed(() => {
+      const current = session.value;
+      if (!current) return false;
+      return !current.answer_id;
+    });
     const isReviewSession = computed(() => session.value?.session_type === 'review');
     const reviewSourceId = computed(() => {
       const current = session.value;
@@ -143,7 +156,7 @@ export default defineComponent({
     });
 
     async function saveDraft() {
-      if (!session.value) return;
+      if (!session.value || !canEditDraft.value) return;
       saving.value = true;
       try {
         await sessionStore.saveDraft(session.value.id, draft.value);
@@ -185,12 +198,6 @@ export default defineComponent({
       answerText.value = draft.value;
     }
 
-    function applyComposeSuggestion() {
-      if (lastCompose.value?.text) {
-        draft.value = lastCompose.value.text;
-      }
-    }
-
     async function finalize() {
       if (!session.value) return;
       finalizing.value = true;
@@ -210,6 +217,30 @@ export default defineComponent({
       await sessionStore.completeLearning(session.value.id);
     }
 
+    async function deleteCurrentSession() {
+      const current = session.value;
+      if (!current || !canDeleteSession.value) return;
+      if (!window.confirm('确定删除该 Session 吗？该操作不可恢复。')) {
+        return;
+      }
+      deletingSession.value = true;
+      deleteError.value = '';
+      const redirectQuestionId = current.question_id;
+      try {
+        await sessionStore.deleteSession(current.id);
+        if (redirectQuestionId) {
+          await router.push(`/questions/${redirectQuestionId}`);
+        } else {
+          await router.push('/questions');
+        }
+      } catch (err) {
+        deleteError.value = '删除 Session 失败';
+        console.error(err);
+      } finally {
+        deletingSession.value = false;
+      }
+    }
+
     onMounted(() => {
       loadData();
     });
@@ -226,6 +257,19 @@ export default defineComponent({
               {question.value.year}/{question.value.month} · {question.value.type}
             </p>
           </header>
+        )}
+        {deleteError.value && <p class="error">{deleteError.value}</p>}
+        {session.value && (
+          <div class="session-toolbar">
+            <span>Session #{session.value.id}</span>
+            {canDeleteSession.value ? (
+              <button type="button" onClick={deleteCurrentSession} disabled={deletingSession.value}>
+                {deletingSession.value ? '删除中...' : '删除当前 Session'}
+              </button>
+            ) : (
+              <small>仅未关联答案的 Session 支持删除</small>
+            )}
+          </div>
         )}
         {isReviewSession.value && (
           <section class="review-context">
@@ -286,10 +330,11 @@ export default defineComponent({
                 draft.value = (event.target as HTMLTextAreaElement).value;
               }}
               placeholder="在此输入你的答案草稿"
+              disabled={!canEditDraft.value}
             ></textarea>
           </label>
           <div class="actions">
-            <button onClick={saveDraft} disabled={saving.value || sessionCompleted.value}>
+            <button onClick={saveDraft} disabled={saving.value || !canEditDraft.value}>
               {saving.value ? '保存中...' : '保存草稿'}
             </button>
             <button
@@ -380,17 +425,10 @@ export default defineComponent({
                   <pre>{lastCompose.value.text}</pre>
                 </blockquote>
               )}
-              <div class="actions">
-                {lastCompose.value.text && (
-                  <button type="button" onClick={applyComposeSuggestion}>
-                    将生成结果填入草稿
-                  </button>
-                )}
-                <details>
-                  <summary>查看生成 JSON</summary>
-                  <pre>{JSON.stringify(lastCompose.value.raw, null, 2)}</pre>
-                </details>
-              </div>
+              <details>
+                <summary>查看生成 JSON</summary>
+                <pre>{JSON.stringify(lastCompose.value.raw, null, 2)}</pre>
+              </details>
             </article>
           ) : (
             <p>尚未进行 LLM 生成。</p>

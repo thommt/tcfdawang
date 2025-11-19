@@ -68,8 +68,6 @@ class SessionService:
         session_entity = self._get_session_entity(session_id)
         if session_entity.answer_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已关联答案的 Session 不可删除")
-        if session_entity.status == "completed":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已完成的 Session 不可删除")
         tasks = self.session.exec(select(Task).where(Task.session_id == session_id)).all()
         for task in tasks:
             conversation = self.session.exec(
