@@ -96,16 +96,32 @@
 - **图结构视图**（可选）：若已生成 graph，使用力导图或流程图展示；若未生成，显示按钮触发 `POST /answers/{id}/structure-graph`。
 - **LLM 日志入口**：展示最近的 chunk/lexeme 任务记录，提供链接跳转 `/llm-conversations`。
 
-## 8. 抽认卡（`/flashcards`）
+## 8. 抽认卡与定制学习（`/flashcards` + 专练入口）
 
-- **切换模式**：句子 / Chunk / Lexeme。
-- **队列视图**：显示今日待复习数、已完成数。
-- **答题交互**：
-  - 句子模式：显示中文或英文提示，输入法语答案或点击“显示答案”；用户选择“对/错/困难”。
-  - Chunk 模式：展示记忆块原文+译文，提示用户复述 chunk；可显示所属句子的链接。
-  - Lexeme 模式：展示 headword/sense_label/gloss，并引用所属 chunk 作为语境。
-  - 支持快捷键（1=对，2=困难，3=错）。
-- **统计面板**：展示连胜、下次复习日期。
+1. **Guided 模式**（默认）
+   - 进入 `/sessions/:id` 学习阶段后，右侧自动显示 Guided 抽认卡区域：同一句的 chunk 卡片需全部复习完毕后才出现整句卡片，完成一整句后自动切换到下一句。
+   - 当前结构/翻译/拆分任务在运行时，Guided 面板应显示“准备中”并禁用复习按钮；任务失败时展示错误和“点击重试”提示。
+   - 在 `/flashcards` 页面也可选择 Guided 模式，FilterBar 可带 `answerId`、`collectionId` 等参数。
+
+2. **Manual 模式**
+   - FilterBar 提供实体类型切换（chunk/sentence/lexeme），并支持 answer、收藏列表、Collection、tag 等过滤条件。
+   - 列表显示待复习数量、下一次 due 时间；答题交互与 Guided 相同（忘记/困难/掌握按钮、快捷键 1/2/3）。
+
+3. **答案专练**
+   - Answer 详情页提供“仅复习该答案”按钮，跳转 `/flashcards?answerId=`；Guided 只遍历该答案的句子顺序。
+   - 若句子尚未生成 chunk/lexeme，界面需提示并提供跳转回答案页触发任务的入口。
+
+4. **收藏/Collection 专练**
+   - `/collections` 页面在每个收藏列表条目旁提供“开始专练”按钮，跳转 `/flashcards?collectionId=`，并允许选择 Guided 或 Manual。
+   - 集合中的实体类型可混合：Guided 会按实体归属的句子自动排序；Manual 则按用户选择的实体类型筛选。
+
+5. **Spaced Repetition 进度**
+   - 抽认卡的 due_at/streak 在 Guided/Manual/专练中共享；页面需展示“今日待复习数、已完成数、下次复习时间”等统计。
+   - 后端暂使用简化的倍增算法，前端应为未来的 SM-2/FSRS 留出空间（例如在卡片详情显示 streak/interval 等字段）。
+
+6. **答案复写自测（Custom Session）**
+   - Answer 详情页提供“复写自测”按钮，跳转 `/sessions/custom?answerId=`：用户在独立工作台中输入草稿，LLM 与指定答案版本对比并给出差异/建议。
+   - 自测流程不生成新答案、不触发结构拆分或抽认卡，完成后将记录为 `session_type=custom` 的 Session，方便在题目详情页查看历史。
 
 ## 9. 收藏与播放列表（`/collections`）
 

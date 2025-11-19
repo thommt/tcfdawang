@@ -148,7 +148,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - 结构拆解时，`Paragraph` 需映射至开篇、问答对、结尾等角色；句子关系图可简化为按对话顺序的链式结构，并附加“follow-up”“clarification”等关系，通过 `semantic_label`/metadata 表示具体语块，追踪追问链路。
    - 抽认卡训练支持“按问答对”模式：先提示对方提问，再要求用户复述回答；必要时加入追问提示以模拟真实对话。
 3. **对话设定**：T2 答案需先调用 `AnswerComposer` 生成自然流畅的双人对话（考官/考生角色、态度、语体、追问方式明确），可结合全局 `user_profile`（从用户设置中获取）与每次会话的临时设定。前端可配置考官态度（友好/严苛）、话题延展度、语法难度等；所选设定写入 `AnswerGroup.dialogue_profile`，以便区分不同 T2 答案组（例如“友好版”“严苛版”“跨文化版”）。
-4. **版本管理**：虽然 T2 结构固定，但仍遵循“答案组 + 多版本”模型；`AnswerComparator` 在判定差异时重点考察问答对数量/内容是否变化，以决定是否生成新答案或升级为 i+1 版本。
+4. **版本管理**：虽然 T2 结构固定，但仍遵循“答案组 + 多版本”模型；`AnswerComparator` 在判定差异时重点考察讨论内容主题、双方人设、考官态度、问答对数量/内容是否变化，以决定是否生成新答案或升级为 i+1 版本。
 
 ### 5.6 后台任务与重试
 1. 所有 LLM 相关步骤（评估、AnswerComposer、结构化、翻译、拆分、比较、Gap 标注等）都生成 `Task` 记录，进入全局任务队列（可选用 Celery/RQ/BackgroundTasks 等实现），确保异步执行，不占用长连接。
@@ -221,10 +221,24 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 6. **缓存与存储**：音频文件可存储在磁盘或对象存储，表中记录路径；需要定期清理未使用的音频（如长时间未播放的翻译音频）。
 7. **TDD 要求**：对播放列表操作、设置继承、音频生成 API 需提供单测/集成测试；前端需有播放控制组件的单元测试和播放流程的 E2E 测试。
 
-### 5.11 自定义学习路径
-1. **答案版专练**：在 Answer 详情页提供“仅复习该答案”入口，跳转至 FlashcardsView 并携带 `answer_id`；Guided 模式仅遍历该答案的句子顺序，Manual 模式则允许在 chunk/句子/lexeme 间自由切换，但都限定在该版本范围内。
-2. **收藏/列表训练**：收藏夹（以及未来的 Collection/播放列表）可直接发起 chunk/句子/lexeme 专项训练，不依赖当前 Session，但仍复用共用的 `FlashcardProgress`，并记录复习分数。
-3. **缺失提示**：当某句尚未完成翻译/拆分时，自定义训练界面需提示并允许即时触发相应任务，确保 chunk→句子学习材料充足。
+### 5.11 自定义学习路径（Spaced Repetition & 专项训练）
+1. **Spaced Repetition（SRS）框架**  
+   - 当前 Guided 模式使用简化的间隔算法（due_at/streak）作为占位实现。后续需替换为完整 SRS（如 SM-2 或 FSRS），并记录每次复习结果（score/时间）以便跨 Session 追踪。  
+   - Guided 模式默认按句子推进：先复习同一句的 chunk 卡片，再出现整句卡片，完成后切换到下一句。Manual 模式允许按实体类型（chunk/sentence/lexeme）过滤。  
+   - SRS 数据需复用同一套 `FlashcardProgress`，无论来自默认 Session、收藏专练、答案专练，统一更新 due_at/streak。
+
+2. **答案版专练**  
+   - 在 Answer 详情页提供“仅复习该答案”入口，跳转至 FlashcardsView 并携带 `answer_id`。Guided 模式仅遍历该答案关联的句子顺序，Manual 模式则允许在 chunk/句子/lexeme 间切换，但都限定在该版本范围内。  
+   - 该专练直接消耗/更新该答案对应的 flashcard 进度，不会创建新的 Answer/AnswerGroup。
+
+3. **收藏/列表训练**  
+   - 收藏夹（以及未来的 Collection/播放列表）可直接发起 chunk/句子/lexeme 专项训练，不依赖当前 Session。  
+   - 训练过程仍复用 `FlashcardProgress` 与 Guided/Manual 模式，需记录复习结果并更新 due_at/streak。  
+   - 当某句尚未完成翻译/拆分时，自定义训练界面需提示并允许即时触发相应任务，确保 chunk→句子学习材料充足。
+
+4. **答案复写自测（Custom Session）**  
+   - 提供“针对单个答案版本重新写一遍”的入口。流程：用户输入草稿 → LLM 将草稿与指定版本的 Answer 比较，给出差异反馈与改进建议，但不生成新 Answer/AnswerGroup，也不触发结构拆分或抽认卡。  
+   - 将此类自测记入类型为 `custom` 的 Session，用于统计练习次数/历史记录，但不参与默认学习阶段。
 
 ## 6. API 初稿
 
@@ -306,6 +320,21 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 - 加入音频录入、语音识别。
 - 导出功能、数据备份。
 - 多收藏/播放列表与 TTS 播放系统。
+
+## 10. 近期实现计划
+
+以下能力仍在规划阶段，当前代码尚未覆盖：
+
+1. **CSV 导入**：补齐 `/questions/import` API 及前端上传界面，支持基于 `(source, year, month, suite, number)` 的批量导入/更新。
+2. **篇章语义图**：在结构拆解时生成 `semantic_label`/角色信息，并按 spec 要求构造句子关系图。
+3. **T2 对话模式**：落实问答对结构、考官/考生人设，以及“按问答对”的抽认卡练习方式。
+4. **收藏/播放列表**：实现 Favorite/Collection 模型，允许针对自定义列表启动 guided/manual 训练。
+5. **实时任务推送**：引入 WebSocket 或 Server-Sent Events，让 Session/Task 进度实时更新，减少前端轮询。
+6. **定制化学习模式**  
+   - 强化 Spaced Repetition：在现有简化算法基础上接入真正的 SRS（SM-2/FSRS），跨 Session 追踪每张卡的 due_at/streak。  
+   - 收藏专练：允许用户基于收藏的句子/Chunk/Lexeme 启动一次专练，与默认 Session 流程解耦。  
+   - 答案单独专练：提供“仅复习某个答案版本”入口，仅在该答案范围内执行 Guided/Manual 练习。  
+   - Answer 复写自测：针对某个答案版本发起 mini-session（类型记为 `custom`），用户输入草稿，LLM 与该版本对比并反馈差异，但不生成新 Answer/AnswerGroup，也不触发抽认卡。
 
 ---
 
