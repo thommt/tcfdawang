@@ -35,6 +35,10 @@ export default defineComponent({
     const reviewError = ref('');
     const chunkingSentenceId = ref<number | null>(null);
     const lexemeSentenceId = ref<number | null>(null);
+    const generatingAllChunks = ref(false);
+    const generatingAllLexemes = ref(false);
+    const skipExistingChunks = ref(true);
+    const skipExistingLexemes = ref(true);
     const chunkError = ref('');
     const chunkMessage = ref('');
     const lexemeError = ref('');
@@ -185,6 +189,86 @@ export default defineComponent({
       }
     }
 
+    const flattenedSentences = computed(() =>
+      paragraphs.value.flatMap((paragraph) => paragraph.sentences ?? [])
+    );
+    const hasAnySentence = computed(() => flattenedSentences.value.length > 0);
+    const allChunksReady = computed(() =>
+      hasAnySentence.value &&
+      flattenedSentences.value.every((sentence) => sentenceHasChunks(sentence))
+    );
+
+    function sentenceHasChunks(sentence: Paragraph['sentences'][number]): boolean {
+      return !!(sentence.chunks && sentence.chunks.length > 0);
+    }
+
+    function sentenceHasLexemes(sentence: Paragraph['sentences'][number]): boolean {
+      if (!sentence.chunks || sentence.chunks.length === 0) return false;
+      return sentence.chunks.every(
+        (chunk) => chunk.lexemes && chunk.lexemes.length > 0
+      );
+    }
+
+    async function generateChunksForAll() {
+      if (generatingAllChunks.value || !hasAnySentence.value) {
+        if (!hasAnySentence.value) {
+          chunkError.value = '请先生成段落结构和句子';
+        }
+        return;
+      }
+      generatingAllChunks.value = true;
+      chunkError.value = '';
+      chunkMessage.value = '';
+      try {
+        for (const sentence of flattenedSentences.value) {
+          if (skipExistingChunks.value && sentenceHasChunks(sentence)) {
+            continue;
+          }
+          await generateSentenceChunks(sentence.id);
+        }
+        chunkMessage.value = '已为整篇答案生成记忆块';
+      } catch (err: any) {
+        chunkError.value = err?.response?.data?.detail ?? '批量生成记忆块失败';
+        console.error(err);
+      } finally {
+        generatingAllChunks.value = false;
+        await loadParagraphStructure();
+        await loadHistory();
+      }
+    }
+
+    async function generateLexemesForAll() {
+      if (generatingAllLexemes.value || !hasAnySentence.value) {
+        if (!hasAnySentence.value) {
+          lexemeError.value = '请先生成段落结构和句子';
+        }
+        return;
+      }
+      if (!allChunksReady.value) {
+        lexemeError.value = '请先为所有句子生成记忆块';
+        return;
+      }
+      generatingAllLexemes.value = true;
+      lexemeError.value = '';
+      lexemeMessage.value = '';
+      try {
+        for (const sentence of flattenedSentences.value) {
+          if (skipExistingLexemes.value && sentenceHasLexemes(sentence)) {
+            continue;
+          }
+          await generateChunkLexemes(sentence.id);
+        }
+        lexemeMessage.value = '已为整篇答案生成关键词';
+      } catch (err: any) {
+        lexemeError.value = err?.response?.data?.detail ?? '批量生成关键词失败';
+        console.error(err);
+      } finally {
+        generatingAllLexemes.value = false;
+        await loadParagraphStructure();
+        await loadHistory();
+      }
+    }
+
     function getChunkIssues(sentence: Paragraph['sentences'][number]): string[] {
       return extractChunkIssues(sentence.extra);
     }
@@ -308,6 +392,42 @@ export default defineComponent({
               <button type="button" onClick={rebuildStructure} disabled={structuring.value}>
                 {structuring.value ? '分析中...' : paragraphs.value.length ? '重新生成结构' : '生成结构'}
               </button>
+              <button
+                type="button"
+                onClick={generateChunksForAll}
+                disabled={generatingAllChunks.value || !hasAnySentence.value}
+              >
+                {generatingAllChunks.value ? '整篇生成记忆块中...' : '整篇生成记忆块'}
+              </button>
+              <button
+                type="button"
+                onClick={generateLexemesForAll}
+                disabled={generatingAllLexemes.value || !allChunksReady.value}
+              >
+                {generatingAllLexemes.value ? '整篇生成关键词中...' : '整篇生成关键词'}
+              </button>
+            </div>
+            <div class="paragraphs__toggles">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={skipExistingChunks.value}
+                  onChange={(event) => {
+                    skipExistingChunks.value = (event.target as HTMLInputElement).checked;
+                  }}
+                />
+                已有记忆块时跳过
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={skipExistingLexemes.value}
+                  onChange={(event) => {
+                    skipExistingLexemes.value = (event.target as HTMLInputElement).checked;
+                  }}
+                />
+                已有关键词时跳过
+              </label>
             </div>
           </header>
           {structuringError.value && <p class="error">{structuringError.value}</p>}
@@ -521,5 +641,3 @@ export default defineComponent({
     );
   },
 });
-    const deleting = ref(false);
-    const deleteError = ref('');
