@@ -236,7 +236,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - 训练过程仍复用 `FlashcardProgress` 与 Guided/Manual 模式，需记录复习结果并更新 due_at/streak。  
    - 当某句尚未完成翻译/拆分时，自定义训练界面需提示并允许即时触发相应任务，确保 chunk→句子学习材料充足。
 
-4. **答案复写自测（Custom Session）**  
+4. **答案复写自测（Custom Session）**
    - 提供“针对单个答案版本重新写一遍”的入口。流程：用户输入草稿 → LLM 将草稿与指定版本的 Answer 比较，给出差异反馈与改进建议，但不生成新 Answer/AnswerGroup，也不触发结构拆分或抽认卡。  
    - 将此类自测记入类型为 `custom` 的 Session，用于统计练习次数/历史记录，但不参与默认学习阶段。
 
@@ -339,3 +339,23 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 ---
 
 本文档用于指导后续需求细化与自动化代码生成。可在实现过程中更新。***
+### 5.12 题意分析与答案方向
+
+1. **题意解析（Outline Planner）**  
+   - 在首次学习或复习时，用户提交草稿后先触发“题意分析”任务：读取题干、考生草稿（如有）并输出：  
+     - `direction_candidates`: 2~3 个可行的答题方向（如“支持政策并强调社会公平”“聚焦个人自由与隐私”“分类讨论家庭 vs 职场”等）。  
+     - `structure_plan`: 对每个方向给出推荐结构（引言/论点/例子/结论），以及是否适合单方论述或正反对比。  
+   - 分析结果写入 Session `progress_state['outline_plan']`，用户可在工作台查看。
+
+2. **创建答案组（AnswerGroup）**  
+   - 在首次学习或用户选择“创建新答案组”时，根据题意解析确定该组的 `direction_descriptor`（如“社会公平”或“自由主义立场”），并写入 `AnswerGroup.direction_descriptor` 字段。  
+   - 如果考生草稿不足以判断方向（或空白），系统可随机/策略性选择解析结果中的一个方向作为默认方向。
+
+3. **生成初稿（AnswerComposer）**  
+   - Compose Prompt 需引用 `direction_descriptor` 和 `structure_plan`，按照对应方向生成 275~325 词（T3）或对话（T2）的法语答案。  
+   - 若 Session 带有评估反馈（`last_eval`），应在 Prompt 中附带“考官评价”，便于针对性改进。
+
+4. **再次学习 / i+n 版本**  
+   - Compare 阶段除判断 new_group/reuse 外，应结合 `direction_descriptor` 与题意解析，明确用户草稿更贴近哪一个方向。  
+   - 若草稿偏向新的方向（现有 AnswerGroup 均不匹配），提示用户创建新的 AnswerGroup；否则在匹配的 group 下创建 i+n 版本（`Answer.version_index + 1`）。  
+   - 方向匹配信息写入 `progress_state['direction_match']`，前端在 finalize 流程中展示“推荐方向”和差异说明。
