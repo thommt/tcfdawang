@@ -31,14 +31,20 @@ export default defineComponent({
     const deletingSession = ref(false);
     const deleteError = ref('');
 
+    const session = computed<Session | null>(() => sessionStore.currentSession);
     const sessionCompleted = computed(() => session.value?.status === 'completed');
     const currentPhase = computed(() => {
       const raw = session.value?.progress_state?.phase as string | undefined;
       return raw || 'draft';
     });
+    const phaseStatus = computed(() => {
+      const raw = session.value?.progress_state?.phase_status as string | undefined;
+      return raw || 'idle';
+    });
+    const phaseError = computed(() => session.value?.progress_state?.phase_error as string | undefined);
+    const phaseIsRunning = computed(() => phaseStatus.value === 'running');
+    const phaseIsFailed = computed(() => phaseStatus.value === 'failed');
     const showDebug = ref(false);
-
-    const session = computed<Session | null>(() => sessionStore.currentSession);
     const sessionHistory = computed(() => sessionStore.history);
     const historyTasks = computed(() => sessionHistory.value?.tasks ?? []);
     const historyLoading = computed(() => sessionStore.historyLoading);
@@ -52,7 +58,7 @@ export default defineComponent({
     const canEditDraft = computed(() => {
       const current = session.value;
       if (!current) return false;
-      return !current.answer_id && !sessionCompleted.value;
+      return !current.answer_id && !sessionCompleted.value && !phaseIsRunning.value;
     });
     const canDeleteSession = computed(() => {
       const current = session.value;
@@ -166,7 +172,7 @@ export default defineComponent({
     }
 
     async function evaluate() {
-      if (!session.value) return;
+      if (!session.value || phaseIsRunning.value) return;
       evalRunning.value = true;
       try {
         await sessionStore.triggerEval(session.value.id);
@@ -178,7 +184,7 @@ export default defineComponent({
     const composing = ref(false);
 
     async function composeAnswer() {
-      if (!session.value || !lastEval.value) return;
+      if (!session.value || !lastEval.value || phaseIsRunning.value) return;
       composing.value = true;
       try {
         const task = await sessionStore.composeAnswer(session.value.id);
@@ -192,14 +198,14 @@ export default defineComponent({
     }
 
     function openFinalize() {
-      if (sessionCompleted.value) return;
+      if (sessionCompleted.value || phaseIsRunning.value) return;
       showFinalize.value = true;
       answerTitle.value = question.value?.title ?? '';
       answerText.value = draft.value;
     }
 
     async function finalize() {
-      if (!session.value) return;
+      if (!session.value || phaseIsRunning.value) return;
       finalizing.value = true;
       try {
         await sessionStore.finalizeSession(session.value.id, {
@@ -213,7 +219,7 @@ export default defineComponent({
     }
 
     async function markLearningDone() {
-      if (!session.value) return;
+      if (!session.value || phaseIsRunning.value) return;
       await sessionStore.completeLearning(session.value.id);
     }
 
@@ -261,7 +267,10 @@ export default defineComponent({
         {deleteError.value && <p class="error">{deleteError.value}</p>}
         {session.value && (
           <div class="session-toolbar">
-            <span>Session #{session.value.id}</span>
+            <span>
+              Session #{session.value.id} · 阶段状态：{phaseStatus.value}
+              {phaseError.value && <em class="error"> · {phaseError.value}</em>}
+            </span>
             {canDeleteSession.value ? (
               <button type="button" onClick={deleteCurrentSession} disabled={deletingSession.value}>
                 {deletingSession.value ? '删除中...' : '删除当前 Session'}
@@ -320,6 +329,13 @@ export default defineComponent({
             {currentPhase.value === 'await_finalize' && <span class="hint">可根据范文生成最终答案</span>}
             {currentPhase.value === 'learning' && <span class="hint">请完成 chunk/句子学习后点击完成</span>}
             {currentPhase.value === 'completed' && <span class="hint">本次学习已完成</span>}
+            <span class="phase-status">状态：{phaseStatus.value}</span>
+            {phaseIsRunning.value && <span class="hint warning">当前阶段任务执行中，请稍候...</span>}
+            {phaseIsFailed.value && (
+              <span class="error">
+                {phaseError.value ? `任务失败：${phaseError.value}` : '任务失败，请在调试面板重试。'}
+              </span>
+            )}
           </div>
           <label>
             <span>草稿</span>
@@ -339,7 +355,9 @@ export default defineComponent({
             </button>
             <button
               onClick={evaluate}
-              disabled={evalRunning.value || sessionCompleted.value || currentPhase.value !== 'draft'}
+              disabled={
+                evalRunning.value || sessionCompleted.value || currentPhase.value !== 'draft' || phaseIsRunning.value
+              }
             >
               {evalRunning.value ? '评估中...' : '请求评估'}
             </button>
@@ -349,7 +367,8 @@ export default defineComponent({
                 composing.value ||
                 sessionCompleted.value ||
                 !lastEval.value ||
-                (currentPhase.value !== 'await_finalize' && currentPhase.value !== 'await_new_group')
+                (currentPhase.value !== 'await_finalize' && currentPhase.value !== 'await_new_group') ||
+                phaseIsRunning.value
               }
               title={
                 !lastEval.value ? '请先完成评估' : currentPhase.value === 'draft' ? '当前阶段不可生成' : ''
@@ -357,11 +376,15 @@ export default defineComponent({
             >
               {composing.value ? '生成中...' : 'LLM 生成答案'}
             </button>
-            <button type="button" onClick={openFinalize} disabled={sessionCompleted.value}>
+            <button type="button" onClick={openFinalize} disabled={sessionCompleted.value || phaseIsRunning.value}>
               {sessionCompleted.value ? '已完成' : '完成 Session'}
             </button>
             {currentPhase.value === 'learning' && (
-              <button type="button" onClick={markLearningDone} disabled={sessionCompleted.value}>
+              <button
+                type="button"
+                onClick={markLearningDone}
+                disabled={sessionCompleted.value || phaseIsRunning.value}
+              >
                 标记学习完成
               </button>
             )}
@@ -375,10 +398,18 @@ export default defineComponent({
             <div class="debug-actions">
               <p>当前 phase: {currentPhase.value}</p>
               <div class="debug-buttons">
-                <button onClick={() => sessionStore.triggerEval(session.value!.id)}>手动评估</button>
-                <button onClick={() => sessionStore.triggerCompare(session.value!.id)}>对比答案组</button>
-                <button onClick={() => sessionStore.triggerGapHighlight(session.value!.id)}>GapHighlighter</button>
-                <button onClick={() => sessionStore.triggerRefine(session.value!.id)}>Refine Answer</button>
+                <button onClick={() => sessionStore.triggerEval(session.value!.id)} disabled={phaseIsRunning.value}>
+                  手动评估
+                </button>
+                <button onClick={() => sessionStore.triggerCompare(session.value!.id)} disabled={phaseIsRunning.value}>
+                  对比答案组
+                </button>
+                <button onClick={() => sessionStore.triggerGapHighlight(session.value!.id)} disabled={phaseIsRunning.value}>
+                  GapHighlighter
+                </button>
+                <button onClick={() => sessionStore.triggerRefine(session.value!.id)} disabled={phaseIsRunning.value}>
+                  Refine Answer
+                </button>
               </div>
               <div class="debug-info">
                 <h4>最近任务</h4>

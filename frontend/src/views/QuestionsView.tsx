@@ -117,6 +117,17 @@ export default defineComponent({
       }
     }
 
+    const questionHasRunningSession = (questionId: number) => {
+      return sessionStore
+        .sessionsByQuestion(questionId)
+        .some(
+          (session) =>
+            session.session_type === 'first' &&
+            !session.answer_id &&
+            (session.progress_state?.phase_status as string | undefined) === 'running'
+        );
+    };
+
     async function openDefaultSession(questionId: number) {
       defaultSessionError.value = '';
       defaultSessionQuestionId.value = questionId;
@@ -127,10 +138,21 @@ export default defineComponent({
         let target =
           sessionStore
             .sessionsByQuestion(questionId)
-            .find((session) => session.session_type === 'first' && !session.answer_id && session.status !== 'completed') ||
+            .find(
+              (session) =>
+                session.session_type === 'first' &&
+                !session.answer_id &&
+                session.status !== 'completed' &&
+                (session.progress_state?.phase_status as string | undefined) !== 'running'
+            ) ||
           null;
         if (!target) {
           target = await sessionStore.createSession(questionId);
+        }
+        const targetPhaseStatus = (target.progress_state?.phase_status as string | undefined) ?? 'idle';
+        if (targetPhaseStatus === 'running') {
+          defaultSessionError.value = '默认学习流程正在执行，请稍后再试';
+          return;
         }
         await router.push(`/sessions/${target.id}`);
       } catch (error) {
@@ -269,13 +291,15 @@ export default defineComponent({
             </thead>
             <tbody>
               {paginatedItems.value.length ? (
-                paginatedItems.value.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.id}</td>
-                    <td>{item.type}</td>
-                    <td>{item.slug ?? '-'}</td>
-                    <td>{item.title}</td>
-                    <td>{item.source}</td>
+                paginatedItems.value.map((item) => {
+                  const busy = questionHasRunningSession(item.id);
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.id}</td>
+                      <td>{item.type}</td>
+                      <td>{item.slug ?? '-'}</td>
+                      <td>{item.title}</td>
+                      <td>{item.source}</td>
                     <td>
                       {item.year}/{item.month}
                     </td>
@@ -287,9 +311,10 @@ export default defineComponent({
                       </RouterLink>
                       <button
                         onClick={() => openDefaultSession(item.id)}
-                        disabled={defaultSessionQuestionId.value === item.id}
+                        disabled={defaultSessionQuestionId.value === item.id || busy}
+                        title={busy ? '该题目的学习流程正在执行，请稍候' : ''}
                       >
-                        {defaultSessionQuestionId.value === item.id ? '进入中...' : '默认学习'}
+                        {defaultSessionQuestionId.value === item.id ? '进入中...' : busy ? '处理中...' : '默认学习'}
                       </button>
                       <button
                         onClick={() => generateMetadata(item.id)}
@@ -300,7 +325,8 @@ export default defineComponent({
                       <button onClick={() => removeQuestion(item.id)}>删除</button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={9} class="empty">

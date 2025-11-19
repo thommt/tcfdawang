@@ -51,6 +51,8 @@ class SessionService:
         self._ensure_question_exists(data.question_id)
         progress_state = dict(data.progress_state or {})
         progress_state.setdefault("phase", "draft")
+        progress_state.setdefault("phase_status", "idle")
+        progress_state.pop("phase_error", None)
         entity = SessionSchema(
             question_id=data.question_id,
             answer_id=data.answer_id,
@@ -98,8 +100,10 @@ class SessionService:
         if "user_answer_draft" in update_data and entity.answer_id is None:
             progress_state = dict(entity.progress_state or {})
             progress_state["phase"] = "draft"
+            progress_state["phase_status"] = "idle"
             for key in ["last_eval", "last_compare", "last_gap_highlight", "last_refine", "last_compose"]:
                 progress_state.pop(key, None)
+            progress_state.pop("phase_error", None)
             entity.progress_state = progress_state
         if data.progress_state is not None:
             entity.progress_state = data.progress_state
@@ -153,6 +157,7 @@ class SessionService:
         session_entity.completed_at = datetime.now(timezone.utc)
         progress_state = dict(session_entity.progress_state or {})
         progress_state["phase"] = "structure_pipeline"
+        progress_state["phase_status"] = "running"
         session_entity.progress_state = progress_state
         session_entity.updated_at = datetime.now(timezone.utc)
         self.session.add(session_entity)
@@ -165,7 +170,10 @@ class SessionService:
         progress = dict(session.progress_state or {})
         if progress.get("phase") != "learning":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前阶段不可完成")
+        if progress.get("phase_status") == "running":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="学习数据生成中，请稍候")
         progress["phase"] = "completed"
+        progress["phase_status"] = "idle"
         session.progress_state = progress
         session.status = "completed"
         session.completed_at = datetime.now(timezone.utc)
@@ -277,7 +285,7 @@ class SessionService:
             session_type="review",
             status="draft",
             user_answer_draft=answer.text,
-            progress_state={"review_source_answer_id": answer.id, "phase": "draft"},
+            progress_state={"review_source_answer_id": answer.id, "phase": "draft", "phase_status": "idle"},
         )
         self.session.add(entity)
         self.session.commit()

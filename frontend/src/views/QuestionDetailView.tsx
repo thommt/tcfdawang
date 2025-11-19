@@ -27,6 +27,17 @@ export default defineComponent({
     const defaultSessionLoading = ref(false);
     const defaultSessionError = ref('');
 
+    const hasRunningSession = computed(() =>
+      sessionStore
+        .sessionsByQuestion(questionId)
+        .some(
+          (session) =>
+            session.session_type === 'first' &&
+            !session.answer_id &&
+            (session.progress_state?.phase_status as string | undefined) === 'running'
+        )
+    );
+
     const relatedSessions = computed(() => sessionStore.sessionsByQuestion(questionId));
     const answerIdToGroupId = computed(() => {
       const map = new Map<number, number>();
@@ -119,13 +130,28 @@ export default defineComponent({
         if (!sessionStore.sessions.length) {
           await sessionStore.loadSessions();
         }
+        if (hasRunningSession.value) {
+          defaultSessionError.value = '默认学习流程正在执行，请稍候';
+          return;
+        }
         let target =
           sessionStore
             .sessionsByQuestion(questionId)
-            .find((session) => session.session_type === 'first' && !session.answer_id && session.status !== 'completed') ||
+            .find(
+              (session) =>
+                session.session_type === 'first' &&
+                !session.answer_id &&
+                session.status !== 'completed' &&
+                (session.progress_state?.phase_status as string | undefined) !== 'running'
+            ) ||
           null;
         if (!target) {
           target = await sessionStore.createSession(questionId);
+        }
+        const phaseStatus = (target.progress_state?.phase_status as string | undefined) ?? 'idle';
+        if (phaseStatus === 'running') {
+          defaultSessionError.value = '默认学习流程正在执行，请稍候';
+          return;
         }
         await router.push(`/sessions/${target.id}`);
       } catch (err) {
@@ -166,8 +192,13 @@ export default defineComponent({
               {question.value.tags.join(', ') || '暂无'}
             </p>
             <div class="question-actions">
-              <button type="button" onClick={enterDefaultSession} disabled={defaultSessionLoading.value}>
-                {defaultSessionLoading.value ? '进入中...' : '默认学习'}
+              <button
+                type="button"
+                onClick={enterDefaultSession}
+                disabled={defaultSessionLoading.value || hasRunningSession.value}
+                title={hasRunningSession.value ? '学习流程正在执行，请稍候' : ''}
+              >
+                {defaultSessionLoading.value ? '进入中...' : hasRunningSession.value ? '处理中...' : '默认学习'}
               </button>
             </div>
             {defaultSessionError.value && <p class="error">{defaultSessionError.value}</p>}

@@ -41,13 +41,33 @@ class TaskService:
         return exists is not None
 
     def _set_session_phase(self, session_entity: SessionSchema, phase: str) -> None:
+        self._set_phase_state(session_entity, phase=phase)
+
+    def _set_phase_state(
+        self,
+        session_entity: SessionSchema,
+        *,
+        phase: str | None = None,
+        status: str | None = None,
+        error: str | None = None,
+        clear_error: bool = False,
+    ) -> None:
         progress_state = dict(session_entity.progress_state or {})
-        progress_state["phase"] = phase
+        if phase is not None:
+            progress_state["phase"] = phase
+        if status is not None:
+            progress_state["phase_status"] = status
+        if clear_error:
+            progress_state.pop("phase_error", None)
+        elif error is not None:
+            progress_state["phase_error"] = error
         session_entity.progress_state = progress_state
         session_entity.updated_at = datetime.now(timezone.utc)
         self.session.add(session_entity)
 
-    def _require_phase(self, session_entity: SessionSchema, allowed_phases: set[str], action: str) -> str:
+    def _require_phase(
+        self, session_entity: SessionSchema, allowed_phases: set[str], action: str
+    ) -> str:
         progress_state = session_entity.progress_state or {}
         current = progress_state.get("phase", "draft")
         if allowed_phases and current not in allowed_phases:
@@ -65,6 +85,7 @@ class TaskService:
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
         self._require_phase(session_entity, {"draft"}, "评估任务")
+        self._set_phase_state(session_entity, status="running", clear_error=True)
         task = Task(type="eval", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
         self.session.commit()
@@ -94,14 +115,17 @@ class TaskService:
             )
             self.session.add(conversation)
             has_answers = self._question_has_answers(question.id)
-            progress_state = dict(session_entity.progress_state or {})
             eval_payload = dict(eval_result)
             eval_payload["saved_at"] = saved_at.isoformat()
+            progress_state = dict(session_entity.progress_state or {})
             progress_state["last_eval"] = eval_payload
-            progress_state["phase"] = "await_eval_confirm" if has_answers else "await_new_group"
             session_entity.progress_state = progress_state
-            session_entity.updated_at = datetime.now(timezone.utc)
-            self.session.add(session_entity)
+            self._set_phase_state(
+                session_entity,
+                phase="await_eval_confirm" if has_answers else "await_new_group",
+                status="idle",
+                clear_error=True,
+            )
             task.status = "succeeded"
             task.result_summary = eval_payload
             task.updated_at = datetime.now(timezone.utc)
@@ -119,6 +143,8 @@ class TaskService:
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
             self.session.commit()
+            self._set_phase_state(session_entity, phase="draft", status="failed", error=str(exc))
+            self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
@@ -127,6 +153,7 @@ class TaskService:
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         self._require_phase(session_entity, {"await_finalize", "await_new_group"}, "LLM 生成答案")
+        self._set_phase_state(session_entity, status="running", clear_error=True)
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -163,10 +190,8 @@ class TaskService:
             compose_payload = dict(compose_result)
             compose_payload["saved_at"] = saved_at.isoformat()
             progress_state["last_compose"] = compose_payload
-            progress_state["phase"] = "await_finalize"
             session_entity.progress_state = progress_state
-            session_entity.updated_at = datetime.now(timezone.utc)
-            self.session.add(session_entity)
+            self._set_phase_state(session_entity, phase="await_finalize", status="idle", clear_error=True)
             task.status = "succeeded"
             task.result_summary = compose_payload
             task.updated_at = datetime.now(timezone.utc)
@@ -178,6 +203,8 @@ class TaskService:
             task.error_message = str(exc)
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
+            self.session.commit()
+            self._set_phase_state(session_entity, status="failed", error=str(exc))
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
@@ -214,6 +241,7 @@ class TaskService:
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         self._require_phase(session_entity, {"await_eval_confirm"}, "答案对比")
+        self._set_phase_state(session_entity, status="running", clear_error=True)
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -283,16 +311,22 @@ class TaskService:
             self.session.add(task)
             self.session.commit()
             self.session.refresh(task)
-            if compare_payload.get("decision") == "reuse":
+            decision = compare_payload.get("decision")
+            if decision == "reuse":
+                self._set_phase_state(session_entity, phase="gap_highlight", status="idle", clear_error=True)
                 try:
                     self.run_gap_highlight_task(session_id)
                 except HTTPException:
                     pass
+            else:
+                self._set_phase_state(session_entity, phase="await_new_group", status="idle", clear_error=True)
         except LLMError as exc:
             task.status = "failed"
             task.error_message = str(exc)
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
+            self.session.commit()
+            self._set_phase_state(session_entity, phase="await_eval_confirm", status="failed", error=str(exc))
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
@@ -323,6 +357,7 @@ class TaskService:
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         self._require_phase(session_entity, {"gap_highlight"}, "GapHighlighter")
+        self._set_phase_state(session_entity, status="running", clear_error=True)
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -366,10 +401,8 @@ class TaskService:
             payload = dict(highlight)
             payload["saved_at"] = saved_at.isoformat()
             progress_state["last_gap_highlight"] = payload
-            progress_state["phase"] = "refine"
             session_entity.progress_state = progress_state
-            session_entity.updated_at = datetime.now(timezone.utc)
-            self.session.add(session_entity)
+            self._set_phase_state(session_entity, phase="refine", status="idle", clear_error=True)
             task.status = "succeeded"
             task.result_summary = payload
             task.updated_at = datetime.now(timezone.utc)
@@ -386,6 +419,8 @@ class TaskService:
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
             self.session.commit()
+            self._set_phase_state(session_entity, phase="gap_highlight", status="failed", error=str(exc))
+            self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
@@ -394,6 +429,7 @@ class TaskService:
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         self._require_phase(session_entity, {"refine"}, "Refine Answer")
+        self._set_phase_state(session_entity, status="running", clear_error=True)
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -432,10 +468,8 @@ class TaskService:
             payload = dict(refined)
             payload["saved_at"] = saved_at.isoformat()
             progress_state["last_refine"] = payload
-            progress_state["phase"] = "await_finalize"
             session_entity.progress_state = progress_state
-            session_entity.updated_at = datetime.now(timezone.utc)
-            self.session.add(session_entity)
+            self._set_phase_state(session_entity, phase="await_finalize", status="idle", clear_error=True)
             task.status = "succeeded"
             task.result_summary = payload
             task.updated_at = datetime.now(timezone.utc)
@@ -448,47 +482,43 @@ class TaskService:
             task.updated_at = datetime.now(timezone.utc)
             self.session.add(task)
             self.session.commit()
+            self._set_phase_state(session_entity, phase="refine", status="failed", error=str(exc))
+            self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
     def run_structure_pipeline_for_answer(self, answer_id: int, session_id: int | None = None) -> None:
+        session_entity: SessionSchema | None = None
         if session_id:
             session_entity = self.session.get(SessionSchema, session_id)
             if session_entity:
-                self._set_session_phase(session_entity, "structure_pipeline")
+                self._set_phase_state(session_entity, phase="structure_pipeline", status="running", clear_error=True)
                 self.session.commit()
+        error_message: str | None = None
         try:
             self.run_structure_task_for_answer(answer_id)
-        except HTTPException:
-            return
-        try:
             self.run_sentence_translation_for_answer(answer_id)
-        except HTTPException:
-            pass
-        sentence_rows = self.session.exec(
+            sentence_rows = self.session.exec(
             select(Sentence.id)
             .join(Paragraph, Paragraph.id == Sentence.paragraph_id)
             .where(Paragraph.answer_id == answer_id)
             .order_by(Paragraph.order_index, Sentence.order_index)
         ).all()
-        for row in sentence_rows:
-            sentence_id = row if isinstance(row, int) else row[0]
-            try:
+            for row in sentence_rows:
+                sentence_id = row if isinstance(row, int) else row[0]
                 self.run_chunk_task(sentence_id)
-            except HTTPException:
-                continue
-            try:
                 self.run_chunk_lexeme_task(sentence_id)
-            except HTTPException:
-                continue
-        if session_id:
-            session_entity = self.session.get(SessionSchema, session_id)
+        except HTTPException as exc:
+            error_message = exc.detail if isinstance(exc.detail, str) else str(exc)
+            raise
+        finally:
             if session_entity:
-                progress_state = dict(session_entity.progress_state or {})
-                progress_state["phase"] = "learning"
-                session_entity.progress_state = progress_state
-                session_entity.updated_at = datetime.now(timezone.utc)
-                self.session.add(session_entity)
+                if error_message:
+                    self._set_phase_state(
+                        session_entity, phase="structure_pipeline", status="failed", error=error_message
+                    )
+                else:
+                    self._set_phase_state(session_entity, phase="learning", status="idle", clear_error=True)
                 self.session.commit()
 
     def _ensure_sentence_flashcard(self, sentence_id: int) -> None:
