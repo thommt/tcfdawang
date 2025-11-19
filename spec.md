@@ -91,6 +91,8 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 
 ### 5.2 首次学习流程
 > **默认 Session 学习路径**：每次 Session（无论首次还是复习）都遵循“用户先独立写完整草稿 → 触发评估任务 → 阅读反馈并决定下一步 → 如有需要，再触发 LLM 生成范文 → 对生成结果执行结构/翻译/Chunk/Lexeme 拆解 → 进入 chunk→句子学习”的顺序。首次 Session 结束后，题目至少会拥有一个 `AnswerGroup` 与其 `Answer(version_index=1)`，并在 `AnswerGroup.descriptor`/`dialogue_profile` 中记录主旨与人设。
+>
+> **前置条件**：题目必须先运行一次“LLM 生成标题/标签”流程，写入新的中文标题、标签以及 `direction_plan`（题意方向与结构建议）；若 `direction_plan.recommended` 为空，则后端拒绝创建 Session，提示用户先完成题意分析。
 1. 用户在前端选择题目并点击“开始学习”，系统在后台自动创建 `Session(session_type=first)`（用户不直接管理 Session 实体）。
 2. 用户录入答案（富文本/Markdown），前端调用 `POST /sessions/{id}/answers/draft`。
 3. 服务层调用 LangChain 流程“Answer Evaluation”，执行多轮对话（每轮提供指导、要求用户改进）。该评估通过异步任务（`Task` type=`eval`）完成，`Session.progress_state` 持久化当前轮次、草稿与 LLM 消息，用户可在前端查看任务进度、必要时手动重试。
@@ -129,6 +131,18 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 7. `completed`：用户点击“完成本轮学习”或系统检测到全部 chunk 学习完毕时，将 Session 状态设为 completed，并在前端隐藏草稿/评估等入口。
 
 > 为保障可维护性，自动流程在每个阶段都需记录最近一次任务的结果与失败信息，并在 UI 提供一个“调试/手动操作”面板，允许用户手动重试 eval/compare/gap/refine/structure/translate/chunk/lexeme 等任务。
+
+### 5.2.2 LLM 任务队列与并行策略
+1. **任务模型**：所有 LLM 调用都包装成 `Task`（含 `payload`、`result_summary`、`status`），生成后进入统一的任务队列。`POST /sessions/{id}/tasks/{type}` 只负责入队，真正的 LLM 调用由后台 Worker 完成。
+2. **执行方式**：
+   - 最小实现可用进程内的 `asyncio.Task` / 后台线程消费 `Task` 列表；后续可替换成 Celery/RQ，不影响 API。
+   - Worker 按 FIFO 取出任务，调用 LangChain，再将结果写回 `Task.result_summary` 和 `LLMConversation`；若失败则记录 `error_message` 并保留队列中的后续任务。
+3. **任务依赖**：Service 层只定义“上一个任务成功后自动入队下一个”的规则（例如 `structure_pipeline` 完成后批量入队 `translate` → 多个 `chunk_sentence` → 多个 `chunk_lexeme` 任务）。队列负责调度，不阻塞主线程。
+4. **并行粒度**：
+   - 句子级任务（chunk、lexeme）以“一个句子一个 Task”方式入队，允许多句同时运行；Worker 并发数可配置（例如线程池大小 N）。
+   - 批量任务（`translate_sentences`）仍可一次处理多句，但会在 Worker 中执行，避免阻塞 API。
+5. **前端交互**：SessionWorkspace 与 Tasks 页面统一通过 `/tasks?session_id=…` 轮询或订阅状态，展示一个“下载管理器”式视图：待执行、执行中、完成、失败/可重试。Guided 流程只要检测到关联 Task 成功即可继续下个阶段。
+6. **扩展**：未来若引入多 Worker，可利用简单的 Redis 队列或数据库表（`tasks` 自身）作为抢占队列，按 `status=pending` + `updated_at` 锁定任务，确保同一任务不会被重复执行。
 
 ### 5.4 抽认卡（固定间隔 mock SRS）
 1. 后端根据 `FlashcardProgress.due_at` 输出今日到期卡片，分为两种模式：

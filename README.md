@@ -21,6 +21,7 @@
 - 抽认卡学习流程采用 **按句子推进** 的 guided 模式：同一句子下的 chunk 卡片需要全部复习完毕后，才会出现对应的整句卡片；完成该句后自动切换到下一句。需要按 chunk/句子/lexeme 独立练习时，可切换至 manual 模式使用传统过滤器。
 - `/llm-conversations` API 及对应前端页面可查看最近的 LLM 调用记录，包含 prompt 与输出，便于调试/追踪拆分质量。
 - Question 元信息新增 `direction_plan` 字段：`POST /questions/{id}/generate-metadata` 会同时产出题意方向候选（推荐 + 备选），AnswerGroup 会按方向划分，默认学习流程据此选择/提示方向。
+- **题目前置校验**：只有完成 “LLM 生成标题/标签/方向” 元数据后，才能创建学习 Session；否则后端会返回 400 并提示先运行题意分析。
 - 参考 `spec.md`、`frontend_spec.md` 获取业务与页面细节。
 
 ## 本地运行

@@ -48,7 +48,10 @@ class SessionService:
         return [self._to_session_read(item) for item in sessions]
 
     def create_session(self, data: SessionCreate) -> SessionRead:
-        self._ensure_question_exists(data.question_id)
+        question = self.session.get(Question, data.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        self._ensure_question_metadata_ready(question)
         progress_state = dict(data.progress_state or {})
         progress_state.setdefault("phase", "draft")
         progress_state.setdefault("phase_status", "idle")
@@ -288,6 +291,7 @@ class SessionService:
         question = self.session.get(Question, group.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        self._ensure_question_metadata_ready(question)
         entity = SessionSchema(
             question_id=question.id,
             answer_id=answer.id,
@@ -384,6 +388,15 @@ class SessionService:
     def _ensure_question_exists(self, question_id: int) -> None:
         if not self.session.get(Question, question_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    def _ensure_question_metadata_ready(self, question: Question) -> None:
+        plan = question.direction_plan if isinstance(question.direction_plan, dict) else None
+        recommended = (plan or {}).get("recommended") if isinstance(plan, dict) else None
+        if not recommended or not recommended.get("title"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="题目尚未完成 LLM 元数据分析，请先在题目页运行“生成标题/结构”。",
+            )
 
     def _ensure_answer_group_exists(self, group_id: int) -> None:
         if not self.session.get(AnswerGroupSchema, group_id):

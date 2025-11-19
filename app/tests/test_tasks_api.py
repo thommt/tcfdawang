@@ -53,6 +53,17 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
+DEFAULT_DIRECTION_PLAN = {
+    "recommended": {
+        "title": "示例方向",
+        "summary": "示例摘要",
+        "stance": "neutral",
+        "structure": ["引言", "论点", "结论"],
+    },
+    "alternatives": [],
+}
+
+
 def _create_question(session: Session, idx: int = 0) -> int:
     question = Question(
         type="T2",
@@ -63,6 +74,7 @@ def _create_question(session: Session, idx: int = 0) -> int:
         number=str(idx + 1),
         title=f"Question {idx}",
         body="Body",
+        direction_plan=DEFAULT_DIRECTION_PLAN,
     )
     session.add(question)
     session.commit()
@@ -84,6 +96,7 @@ def _create_answer(session: Session, idx: int = 0) -> int:
         number=str(idx + 1),
         title=f"Answer question {idx}",
         body="Body",
+        direction_plan=DEFAULT_DIRECTION_PLAN,
     )
     session.add(question)
     session.commit()

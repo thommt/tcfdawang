@@ -17,6 +17,7 @@ from app.db.schemas import (
     ChunkLexeme,
     FlashcardProgress,
     Session as SessionSchema,
+    Question,
 )
 
 
@@ -121,7 +122,18 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
-def _create_question(client: TestClient) -> int:
+DEFAULT_DIRECTION_PLAN = {
+    "recommended": {
+        "title": "示例方向",
+        "summary": "示例摘要",
+        "stance": "neutral",
+        "structure": ["引言", "论点", "结论"],
+    },
+    "alternatives": [],
+}
+
+
+def _create_question(client: TestClient, session: Session) -> int:
     payload = {
         "type": "T2",
         "source": "mock",
@@ -135,11 +147,18 @@ def _create_question(client: TestClient) -> int:
     }
     response = client.post("/questions", json=payload)
     assert response.status_code == 201
-    return response.json()["id"]
+    question_id = response.json()["id"]
+    question = session.get(Question, question_id)
+    assert question is not None
+    question.direction_plan = DEFAULT_DIRECTION_PLAN
+    session.add(question)
+    session.commit()
+    session.refresh(question)
+    return question_id
 
 
-def test_create_and_update_session(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_create_and_update_session(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     resp = client.post("/sessions", json={"question_id": question_id})
     assert resp.status_code == 201
     session_data = resp.json()
@@ -155,8 +174,8 @@ def test_create_and_update_session(client: TestClient) -> None:
     assert updated["user_answer_draft"] == "Bonjour"
 
 
-def test_create_answer_group_and_answer(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_create_answer_group_and_answer(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     group_resp = client.post(
         "/answer-groups",
         json={"question_id": question_id, "title": "Group 1"},
@@ -183,8 +202,8 @@ def test_create_answer_group_and_answer(client: TestClient) -> None:
     assert fetched_answer.status_code == 200
 
 
-def test_run_eval_task(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_run_eval_task(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Je pense que..."},
@@ -203,7 +222,7 @@ def test_run_eval_task(client: TestClient) -> None:
     assert "saved_at" in last_eval
 
 
-def test_run_compose_task(client: TestClient) -> None:
+def test_run_compose_task(client: TestClient, session: Session) -> None:
     class DummyLLM:
         def evaluate_answer(self, **kwargs):
             return {"feedback": "很好", "score": 4}
@@ -215,7 +234,7 @@ def test_run_compose_task(client: TestClient) -> None:
             return {"decision": "new_group", "matched_answer_group_id": None, "reason": "全新主旨", "differences": []}
 
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     session_resp = client.post("/sessions", json={"question_id": question_id}).json()
     eval_resp = client.post(f"/sessions/{session_resp['id']}/tasks/eval")
     assert eval_resp.status_code == 201
@@ -232,7 +251,7 @@ def test_run_compose_task(client: TestClient) -> None:
 
 
 def test_compare_task(client: TestClient, session: Session) -> None:
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     group_resp = client.post(
         "/answer-groups",
         json={"question_id": question_id, "title": "Group 1"},
@@ -267,7 +286,7 @@ def test_compare_task(client: TestClient, session: Session) -> None:
 
 
 def test_gap_highlight_and_refine(client: TestClient, session: Session) -> None:
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     group_resp = client.post("/answer-groups", json={"question_id": question_id, "title": "Group"}).json()
     client.post(
         "/answers",
@@ -307,7 +326,7 @@ def test_gap_highlight_and_refine(client: TestClient, session: Session) -> None:
 
 
 def test_finalize_session_creates_answer(client: TestClient, session: Session) -> None:
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Bonjour"},
@@ -348,8 +367,8 @@ def test_finalize_session_creates_answer(client: TestClient, session: Session) -
     assert len(data[0]["answers"]) == 2
 
 
-def test_answer_history_endpoint(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_answer_history_endpoint(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Texte initial"},
@@ -379,8 +398,8 @@ def test_answer_history_endpoint(client: TestClient) -> None:
     assert any(conv["purpose"] == "eval" for conv in history["conversations"])
 
 
-def test_session_history_endpoint(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_session_history_endpoint(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Texte initial"},
@@ -398,7 +417,7 @@ def test_session_history_endpoint(client: TestClient) -> None:
 
 
 def test_create_review_session(client: TestClient, session: Session) -> None:
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Bonjour"},
@@ -418,7 +437,7 @@ def test_create_review_session(client: TestClient, session: Session) -> None:
 
 
 def test_delete_answer_group_cascades(client: TestClient, session: Session) -> None:
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     group = client.post(
         "/answer-groups",
         json={"question_id": question_id, "title": "Group"},
@@ -525,7 +544,7 @@ def test_delete_answer_group_cascades(client: TestClient, session: Session) -> N
 
 
 def test_delete_single_answer(client: TestClient, session: Session) -> None:
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     group = client.post(
         "/answer-groups",
         json={"question_id": question_id, "title": "Group"},
@@ -580,7 +599,7 @@ def test_delete_single_answer(client: TestClient, session: Session) -> None:
 
 
 def test_delete_non_latest_answer_fails(client: TestClient, session: Session) -> None:
-    question_id = _create_question(client)
+    question_id = _create_question(client, session)
     group = client.post(
         "/answer-groups",
         json={"question_id": question_id, "title": "Group"},
@@ -609,8 +628,8 @@ def test_delete_non_latest_answer_fails(client: TestClient, session: Session) ->
     assert client.delete(f"/answers/{second['id']}").status_code == 204
 
 
-def test_delete_session_removes_tasks_and_logs(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_delete_session_removes_tasks_and_logs(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Texte"},
@@ -625,8 +644,8 @@ def test_delete_session_removes_tasks_and_logs(client: TestClient) -> None:
     assert client.get(f"/sessions/{session_id}").status_code == 404
 
 
-def test_delete_session_disallowed_when_answer_exists(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_delete_session_disallowed_when_answer_exists(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Texte"},
@@ -643,8 +662,8 @@ def test_delete_session_disallowed_when_answer_exists(client: TestClient) -> Non
     assert resp.status_code == 400
 
 
-def test_delete_completed_session_without_answer(client: TestClient) -> None:
-    question_id = _create_question(client)
+def test_delete_completed_session_without_answer(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Texte"},
