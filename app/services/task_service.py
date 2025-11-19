@@ -544,6 +544,10 @@ class TaskService:
             raise
         finally:
             if session_entity:
+                if not error_message:
+                    issues = self._find_structure_gaps(answer_id)
+                    if issues:
+                        error_message = issues
                 if error_message:
                     self._set_phase_state(
                         session_entity, phase="structure_pipeline", status="failed", error=error_message
@@ -551,6 +555,61 @@ class TaskService:
                 else:
                     self._set_phase_state(session_entity, phase="learning", status="idle", clear_error=True)
                 self.session.commit()
+
+    def _find_structure_gaps(self, answer_id: int) -> str | None:
+        sentence_rows = self.session.exec(
+            select(Sentence.id, Sentence.text)
+            .join(Paragraph, Paragraph.id == Sentence.paragraph_id)
+            .where(Paragraph.answer_id == answer_id)
+        ).all()
+        if not sentence_rows:
+            return "未生成任何句子，请重试结构化任务"
+        sentences_without_chunks: list[str] = []
+        chunks_missing_lexemes: list[str] = []
+        for row in sentence_rows:
+            sentence_id = row[0] if isinstance(row, tuple) else row.id  # type: ignore[attr-defined]
+            sentence_text = row[1] if isinstance(row, tuple) else row.text  # type: ignore[attr-defined]
+            chunk_rows = self.session.exec(
+                select(SentenceChunk).where(SentenceChunk.sentence_id == sentence_id)
+            ).all()
+            if not chunk_rows:
+                sentences_without_chunks.append(sentence_text or "")
+                continue
+            for chunk in chunk_rows:
+                if chunk.id is None:
+                    continue
+                needs_lexeme = self._chunk_requires_lexeme(chunk)
+                if not needs_lexeme:
+                    continue
+                lexeme_exists = self.session.exec(
+                    select(ChunkLexeme.id).where(ChunkLexeme.chunk_id == chunk.id)
+                ).first()
+                if not lexeme_exists:
+                    chunks_missing_lexemes.append(chunk.text or sentence_text or "")
+                    break
+        if sentences_without_chunks:
+            preview = "；".join(sentences_without_chunks[:3])
+            return f"存在未拆分的句子，请重试结构任务。示例：{preview}"
+        if chunks_missing_lexemes:
+            preview = "；".join(chunks_missing_lexemes[:3])
+            return f"部分记忆块缺少关键词，请重新运行 chunk lexeme 任务。示例：{preview}"
+        if incomplete_sentences:
+            return "部分句子尚未拆分记忆块，请重新运行结构任务"
+        if incomplete_chunks:
+            return "部分记忆块尚未生成关键词，请重新运行 chunk lexeme 任务"
+        return None
+
+    def _chunk_requires_lexeme(self, chunk: SentenceChunk) -> bool:
+        text = (chunk.text or "").strip()
+        if not text:
+            return False
+        normalized = text.replace("’", " ").replace("'", " ")
+        tokens = [token for token in normalized.split() if token]
+        if len(tokens) <= 2:
+            return False
+        if len(text) <= 8:
+            return False
+        return True
 
     def _ensure_sentence_flashcard(self, sentence_id: int) -> None:
         self.flashcard_service.get_or_create(

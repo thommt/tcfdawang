@@ -4,8 +4,10 @@ import { useSessionStore } from '../stores/sessions';
 import { useQuestionStore } from '../stores/questions';
 import type { Session } from '../types/session';
 import type { Answer } from '../types/answer';
+import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchQuestionById } from '../api/questions';
 import { fetchAnswerById } from '../api/answers';
+import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
 import type { Question } from '../types/question';
 
 export default defineComponent({
@@ -30,6 +32,17 @@ export default defineComponent({
     const answerText = ref('');
     const deletingSession = ref(false);
     const deleteError = ref('');
+    const reviewScoreOptions = [
+      { label: '忘记', score: 1 },
+      { label: '困难', score: 3 },
+      { label: '掌握', score: 5 },
+    ];
+    const learningCards = ref<FlashcardStudyCard[]>([]);
+    const learningLoading = ref(false);
+    const learningError = ref('');
+    const learningMessage = ref('');
+    const learningSubmitting = ref(false);
+    const learningIndex = ref(0);
 
     const session = computed<Session | null>(() => sessionStore.currentSession);
     const sessionCompleted = computed(() => session.value?.status === 'completed');
@@ -148,6 +161,23 @@ export default defineComponent({
       }
     );
 
+    watch(
+      [currentPhase, phaseStatus, () => session.value?.answer_id],
+      ([phase, status]) => {
+        if (phase === 'learning') {
+          if (status === 'idle') {
+            loadLearningCards();
+          } else if (status === 'running') {
+            resetLearningState();
+            learningMessage.value = '正在准备抽认卡，请稍候...';
+          }
+        } else {
+          resetLearningState();
+        }
+      },
+      { immediate: true }
+    );
+
     const lastCompose = computed(() => {
       const compose = session.value?.progress_state?.last_compose as Record<string, unknown> | undefined;
       if (!compose) return null;
@@ -182,6 +212,15 @@ export default defineComponent({
     }
 
     const composing = ref(false);
+    const canCompleteLearning = computed(() => {
+      return (
+        currentPhase.value === 'learning' &&
+        !phaseIsRunning.value &&
+        !learningLoading.value &&
+        learningCards.value.length === 0
+      );
+    });
+    const currentLearningCard = computed(() => learningCards.value[learningIndex.value] ?? null);
 
     async function composeAnswer() {
       if (!session.value || !lastEval.value || phaseIsRunning.value) return;
@@ -219,8 +258,123 @@ export default defineComponent({
     }
 
     async function markLearningDone() {
-      if (!session.value || phaseIsRunning.value) return;
+      if (!session.value || !canCompleteLearning.value) return;
       await sessionStore.completeLearning(session.value.id);
+    }
+
+    function resetLearningState() {
+      learningCards.value = [];
+      learningIndex.value = 0;
+      learningError.value = '';
+      learningMessage.value = '';
+    }
+
+    async function loadLearningCards() {
+      if (!session.value?.answer_id || currentPhase.value !== 'learning' || phaseIsRunning.value) {
+        resetLearningState();
+        return;
+      }
+      learningLoading.value = true;
+      learningError.value = '';
+      try {
+        const cards = await fetchDueFlashcards({
+          mode: 'guided',
+          answerId: session.value.answer_id,
+          limit: 20,
+        });
+        learningCards.value = cards;
+        learningIndex.value = 0;
+        if (cards.length === 0) {
+          learningMessage.value = '该答案的抽认卡已学习完成，请点击“标记学习完成”。';
+        } else {
+          learningMessage.value = '';
+        }
+      } catch (err) {
+        console.error(err);
+        learningError.value = '无法加载抽认卡';
+      } finally {
+        learningLoading.value = false;
+      }
+    }
+
+    async function handleLearningReview(score: number) {
+      const card = currentLearningCard.value;
+      if (!card || learningSubmitting.value) return;
+      learningSubmitting.value = true;
+      learningError.value = '';
+      try {
+        await reviewFlashcard(card.card.id, score);
+        learningMessage.value = '已记录复习结果';
+        await loadLearningCards();
+      } catch (err) {
+        console.error(err);
+        learningError.value = '提交复习结果失败';
+      } finally {
+        learningSubmitting.value = false;
+      }
+    }
+
+    function renderLearningCard() {
+      const card = currentLearningCard.value;
+      if (!card) return null;
+      if (card.chunk) {
+        const chunk = card.chunk;
+        const sentence = chunk.sentence;
+        return (
+          <div class="card-section">
+            <h4>记忆块 #{chunk.order_index}</h4>
+            <p class="card__text">{chunk.text}</p>
+            <p class="card__translation">英文：{chunk.translation_en ?? '—'}</p>
+            <p class="card__translation">中文：{chunk.translation_zh ?? '—'}</p>
+            {sentence && (
+              <p class="card__meta">
+                来源句子：{sentence.text}
+                {sentence.answer_id && (
+                  <>
+                    {' · '}
+                    <RouterLink to={`/answers/${sentence.answer_id}`}>查看答案</RouterLink>
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+        );
+      }
+      if (card.sentence) {
+        const sentence = card.sentence;
+        return (
+          <div class="card-section">
+            <h4>句子卡片</h4>
+            <p class="card__text">{sentence.text}</p>
+            <p class="card__translation">英文：{sentence.translation_en ?? '—'}</p>
+            <p class="card__translation">中文：{sentence.translation_zh ?? '—'}</p>
+            <p class="card__meta">
+              段落 #{sentence.paragraph_id} · 难度：{sentence.difficulty ?? '未标注'}
+              {sentence.answer_id && (
+                <>
+                  {' · '}
+                  <RouterLink to={`/answers/${sentence.answer_id}`}>查看答案</RouterLink>
+                </>
+              )}
+            </p>
+          </div>
+        );
+      }
+      if (card.lexeme) {
+        const lexeme = card.lexeme;
+        return (
+          <div class="card-section">
+            <h4>词块卡片</h4>
+            <p class="card__text">
+              {lexeme.headword} {lexeme.sense_label && <small>({lexeme.sense_label})</small>}
+            </p>
+            {lexeme.gloss && <p class="card__translation">释义：{lexeme.gloss}</p>}
+            {lexeme.translation_zh && <p class="card__translation">中文：{lexeme.translation_zh}</p>}
+            {lexeme.translation_en && <p class="card__translation">英文：{lexeme.translation_en}</p>}
+          </div>
+        );
+      }
+      return <p>暂不支持的卡片类型。</p>;
     }
 
     async function deleteCurrentSession() {
@@ -390,6 +544,49 @@ export default defineComponent({
             )}
           </div>
         </section>
+        {currentPhase.value === 'learning' && (
+          <section class="learning-panel">
+            <h3>Guided 抽认卡学习</h3>
+            {learningError.value && <p class="error">{learningError.value}</p>}
+            {learningMessage.value && <p class="hint">{learningMessage.value}</p>}
+            {learningLoading.value && <p>抽认卡加载中...</p>}
+            {!learningLoading.value && currentLearningCard.value && (
+              <article class="flashcard-card">
+                <div class="card__status">
+                  <span>
+                    进度：{learningIndex.value + 1}/{learningCards.value.length}
+                  </span>
+                  <span>下次复习：{new Date(currentLearningCard.value.card.due_at).toLocaleString()}</span>
+                </div>
+                {renderLearningCard()}
+                <div class="review-actions">
+                  {reviewScoreOptions.map((option) => (
+                    <button
+                      key={option.score}
+                      type="button"
+                      onClick={() => handleLearningReview(option.score)}
+                      disabled={learningSubmitting.value}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </article>
+            )}
+            {!learningLoading.value && learningCards.value.length === 0 && !learningError.value && (
+              <p>暂无到期的抽认卡，若已学习完毕可点击下方“标记学习完成”。</p>
+            )}
+            <div class="learning-controls">
+              <button
+                type="button"
+                onClick={() => loadLearningCards()}
+                disabled={learningLoading.value || phaseIsRunning.value}
+              >
+                刷新抽认卡
+              </button>
+            </div>
+          </section>
+        )}
         <section class="debug-panel">
           <button type="button" onClick={() => (showDebug.value = !showDebug.value)}>
             {showDebug.value ? '收起调试' : '调试/手动操作'}
