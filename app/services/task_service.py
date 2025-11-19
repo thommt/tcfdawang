@@ -853,8 +853,8 @@ class TaskService:
                             paragraph_id=paragraph.id,
                             order_index=s_idx,
                             text=sentence_data.get("text", ""),
-                            translation_en=sentence_data.get("translation"),
-                            translation_zh=sentence_data.get("translation_zh"),
+                            translation_en=None,
+                            translation_zh=None,
                             difficulty=sentence_data.get("difficulty"),
                             extra={},
                         )

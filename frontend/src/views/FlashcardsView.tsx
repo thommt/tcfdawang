@@ -4,12 +4,18 @@ import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
 
 type EntityFilter = 'guided' | 'chunk' | 'sentence' | 'lexeme';
+type PromptLanguage = 'zh' | 'en';
 
 const filterOptions: Array<{ value: EntityFilter; label: string }> = [
   { value: 'guided', label: '标准流程' },
   { value: 'chunk', label: '记忆块卡片' },
   { value: 'sentence', label: '句子卡片' },
   { value: 'lexeme', label: '词块卡片' }
+];
+
+const promptLanguageOptions: Array<{ value: PromptLanguage; label: string }> = [
+  { value: 'zh', label: '中文提示' },
+  { value: 'en', label: '英文提示' }
 ];
 
 const reviewScores = [
@@ -31,9 +37,13 @@ export default defineComponent({
     const entityFilter = ref<EntityFilter>('guided');
     const answerFilterId = ref<number | null>(null);
     const currentIndex = ref(0);
+    const promptLanguage = ref<PromptLanguage>('zh');
+    const userAnswer = ref('');
+    const showAnswer = ref(false);
 
     const currentCard = computed(() => cards.value[currentIndex.value] ?? null);
     const cardCount = computed(() => cards.value.length);
+    const preferredLanguage = computed(() => promptLanguage.value);
 
     async function loadCards() {
       loading.value = true;
@@ -77,7 +87,7 @@ export default defineComponent({
 
     async function handleReview(score: number) {
       const card = currentCard.value;
-      if (!card || submitting.value) return;
+      if (!card || submitting.value || !showAnswer.value) return;
       submitting.value = true;
       error.value = '';
       try {
@@ -90,6 +100,89 @@ export default defineComponent({
       } finally {
         submitting.value = false;
       }
+    }
+
+    function pickTranslation(
+      payload: Record<'translation_en' | 'translation_zh', string | null | undefined> | null | undefined,
+      lang: PromptLanguage
+    ) {
+      if (!payload) return null;
+      const key = lang === 'zh' ? 'translation_zh' : 'translation_en';
+      const value = payload[key];
+      return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+    }
+
+    const promptText = computed(() => {
+      const card = currentCard.value;
+      if (!card) return '暂无提示';
+      const prefer = preferredLanguage.value;
+      const fallback = prefer === 'zh' ? 'en' : 'zh';
+      const sources: Array<Record<'translation_en' | 'translation_zh', string | null | undefined>> = [];
+
+      if (card.card.entity_type === 'chunk' && card.chunk) {
+        sources.push({
+          translation_en: card.chunk.translation_en ?? null,
+          translation_zh: card.chunk.translation_zh ?? null
+        });
+        if (card.chunk.sentence) {
+          sources.push({
+            translation_en: card.chunk.sentence.translation_en ?? null,
+            translation_zh: card.chunk.sentence.translation_zh ?? null
+          });
+        }
+      }
+      if (card.card.entity_type === 'sentence' && card.sentence) {
+        sources.push({
+          translation_en: card.sentence.translation_en ?? null,
+          translation_zh: card.sentence.translation_zh ?? null
+        });
+      }
+      if (card.card.entity_type === 'lexeme' && card.lexeme) {
+          sources.push({
+            translation_en: card.lexeme.translation_en ?? card.lexeme.gloss ?? null,
+            translation_zh: card.lexeme.translation_zh ?? card.lexeme.gloss ?? null
+          });
+      }
+      // 如果上述都没有覆盖，则尝试其它可用信息
+      if (sources.length === 0) {
+        if (card.sentence) {
+          sources.push({
+            translation_en: card.sentence.translation_en ?? null,
+            translation_zh: card.sentence.translation_zh ?? null
+          });
+        }
+        if (card.chunk) {
+          sources.push({
+            translation_en: card.chunk.translation_en ?? null,
+            translation_zh: card.chunk.translation_zh ?? null
+          });
+        }
+        if (card.lexeme) {
+          sources.push({
+            translation_en: card.lexeme.translation_en ?? card.lexeme.gloss ?? null,
+            translation_zh: card.lexeme.translation_zh ?? card.lexeme.gloss ?? null
+          });
+        }
+      }
+
+      const choose = (lang: PromptLanguage) => {
+        for (const src of sources) {
+          const found = pickTranslation(src, lang);
+          if (found) return found;
+        }
+        return null;
+      };
+
+      return (
+        choose(prefer) ||
+        choose(fallback as PromptLanguage) ||
+        '暂无可用提示，请直接凭记忆输入法语原文。'
+      );
+    });
+
+    function confirmReveal() {
+      if (!currentCard.value) return;
+      showAnswer.value = true;
     }
 
     function renderSentenceCard() {
@@ -171,6 +264,11 @@ export default defineComponent({
       );
     }
 
+    function setPromptLanguage(lang: PromptLanguage) {
+      if (promptLanguage.value === lang) return;
+      promptLanguage.value = lang;
+    }
+
     function syncFilterFromRoute() {
       const queryType = route.query.type;
       if (queryType === 'lexeme' || queryType === 'sentence' || queryType === 'chunk') {
@@ -186,6 +284,15 @@ export default defineComponent({
         answerFilterId.value = null;
       }
     }
+
+    watch(
+      () => currentCard.value?.card.id,
+      () => {
+        userAnswer.value = '';
+        showAnswer.value = false;
+      },
+      { immediate: true }
+    );
 
     onMounted(() => {
       syncFilterFromRoute();
@@ -259,21 +366,57 @@ export default defineComponent({
               </span>
               <span>下次复习：{new Date(currentCard.value.card.due_at).toLocaleString()}</span>
             </div>
-            {renderChunkCard()}
-            {renderSentenceCard()}
-            {renderLexemeCard()}
-            <footer class="card__actions">
-              {reviewScores.map((item) => (
-                <button
-                  key={item.score}
-                  type="button"
-                  onClick={() => handleReview(item.score)}
-                  disabled={submitting.value}
-                >
-                  {item.label}
+            <div class="card__prompt">
+              <div class="prompt__controls">
+                <span>提示语言：</span>
+                {promptLanguageOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    class={['filter-button', { active: promptLanguage.value === option.value }]}
+                    onClick={() => setPromptLanguage(option.value)}
+                    disabled={showAnswer.value}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p class="prompt__text">{promptText.value}</p>
+              <textarea
+                class="prompt__input"
+                placeholder="请输入对应的法语表达..."
+                value={userAnswer.value}
+                onInput={(event) => {
+                  userAnswer.value = (event.target as HTMLTextAreaElement).value;
+                }}
+                rows={3}
+                disabled={showAnswer.value}
+              />
+              {!showAnswer.value && (
+                <button type="button" onClick={confirmReveal} class="prompt__confirm" disabled={!currentCard.value}>
+                  确认查看答案
                 </button>
-              ))}
-            </footer>
+              )}
+            </div>
+            {showAnswer.value && (
+              <>
+                {renderChunkCard()}
+                {renderSentenceCard()}
+                {renderLexemeCard()}
+                <footer class="card__actions">
+                  {reviewScores.map((item) => (
+                    <button
+                      key={item.score}
+                      type="button"
+                      onClick={() => handleReview(item.score)}
+                      disabled={submitting.value}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </footer>
+              </>
+            )}
           </article>
         )}
       </section>

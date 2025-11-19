@@ -407,9 +407,24 @@ export default defineComponent({
       learningSubmitting.value = true;
       learningError.value = '';
       try {
-        await reviewFlashcard(card.card.id, score);
-        learningMessage.value = '已记录复习结果';
-        await loadLearningCards();
+        const updated = await reviewFlashcard(card.card.id, score);
+        const updatedCard: FlashcardStudyCard = {
+          ...card,
+          card: updated,
+        };
+        const queue = [...learningCards.value];
+        queue.splice(learningIndex.value, 1);
+        if (score >= 5) {
+          learningMessage.value = '已掌握，继续下一张。';
+        } else {
+          learningMessage.value = '尚未掌握，该卡稍后会再次出现。';
+          queue.push(updatedCard);
+        }
+        learningCards.value = queue;
+        learningIndex.value = 0;
+        if (learningCards.value.length === 0) {
+          await loadLearningCards();
+        }
       } catch (err) {
         console.error(err);
         learningError.value = '提交复习结果失败';
