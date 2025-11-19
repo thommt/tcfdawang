@@ -494,6 +494,37 @@ class TaskService:
             if session_entity:
                 self._set_phase_state(session_entity, phase="structure_pipeline", status="running", clear_error=True)
                 self.session.commit()
+
+    def run_structure_pipeline_task(self, session_id: int, answer_id: int) -> TaskRead:
+        task = Task(
+            type="structure_pipeline",
+            status="pending",
+            payload={"session_id": session_id, "answer_id": answer_id},
+            session_id=session_id,
+            answer_id=answer_id,
+        )
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        try:
+            self.run_structure_pipeline_for_answer(answer_id, session_id=session_id)
+            task.status = "succeeded"
+            task.result_summary = {"status": "completed"}
+            task.updated_at = datetime.now(timezone.utc)
+            task.error_message = None
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+        except HTTPException as exc:
+            task.status = "failed"
+            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            task.error_message = detail
+            task.updated_at = datetime.now(timezone.utc)
+            self.session.add(task)
+            self.session.commit()
+            self.session.refresh(task)
+            raise
+        return TaskRead.model_validate(task)
         error_message: str | None = None
         try:
             self.run_structure_task_for_answer(answer_id)

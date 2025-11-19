@@ -102,7 +102,7 @@ def finalize_session(
     result = service.finalize_session(session_id, payload)
     if result.answer_id:
         try:
-            task_service.run_structure_pipeline_for_answer(result.answer_id, session_id=result.id)
+            task_service.run_structure_pipeline_task(result.id, result.answer_id)
         except HTTPException:
             pass
     return result
