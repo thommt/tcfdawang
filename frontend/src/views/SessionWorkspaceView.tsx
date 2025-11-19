@@ -2,11 +2,12 @@ import { defineComponent, ref, onMounted, watch, computed } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useSessionStore } from '../stores/sessions';
 import { useQuestionStore } from '../stores/questions';
-import type { Session } from '../types/session';
-import type { Answer } from '../types/answer';
+import type { Session, SessionFinalizePayload } from '../types/session';
+import type { Answer, AnswerGroup } from '../types/answer';
 import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchQuestionById } from '../api/questions';
 import { fetchAnswerById } from '../api/answers';
+import { fetchAnswerGroups } from '../api/answerGroups';
 import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
 import type { Question } from '../types/question';
 
@@ -37,6 +38,9 @@ export default defineComponent({
       { label: '困难', score: 3 },
       { label: '掌握', score: 5 },
     ];
+    const answerGroups = ref<AnswerGroup[]>([]);
+    const groupsLoading = ref(false);
+    const groupsError = ref('');
     const learningCards = ref<FlashcardStudyCard[]>([]);
     const learningLoading = ref(false);
     const learningError = ref('');
@@ -118,6 +122,19 @@ export default defineComponent({
     });
 
 
+    async function loadAnswerGroupsForQuestion(questionId: number) {
+      groupsLoading.value = true;
+      groupsError.value = '';
+      try {
+        answerGroups.value = await fetchAnswerGroups(questionId);
+      } catch (err) {
+        groupsError.value = '答案组加载失败';
+        console.error(err);
+      } finally {
+        groupsLoading.value = false;
+      }
+    }
+
     async function loadReviewSource(answerId: number | null) {
       if (!answerId) {
         reviewSourceAnswer.value = null;
@@ -146,6 +163,7 @@ export default defineComponent({
         } else {
           question.value = await fetchQuestionById(current.question_id);
         }
+        await loadAnswerGroupsForQuestion(current.question_id);
         await loadReviewSource(reviewSourceId.value);
       }
       await sessionStore.loadSessionHistory(sessionId);
@@ -157,6 +175,15 @@ export default defineComponent({
         if (value) {
           draft.value = value.user_answer_draft ?? '';
           loadReviewSource(reviewSourceId.value);
+        }
+      }
+    );
+
+    watch(
+      () => answerGroups.value.length,
+      (length) => {
+        if (length && finalizeMode.value === 'reuse' && !selectedGroupId.value) {
+          selectedGroupId.value = answerGroups.value[0].id;
         }
       }
     );
@@ -211,6 +238,23 @@ export default defineComponent({
       }
     }
 
+    const lastCompare = computed(() => {
+      const compareData = session.value?.progress_state?.last_compare as Record<string, unknown> | undefined;
+      if (!compareData) return null;
+      return {
+        raw: compareData,
+        decision: compareData.decision as string | undefined,
+        matchedGroupId: compareData.matched_answer_group_id as number | undefined,
+        reason: compareData.reason as string | undefined,
+        differences: Array.isArray(compareData.differences)
+          ? (compareData.differences as string[])
+          : [],
+      };
+    });
+    const matchedAnswerGroup = computed(() => {
+      if (!lastCompare.value?.matchedGroupId) return null;
+      return answerGroups.value.find((group) => group.id === lastCompare.value?.matchedGroupId) ?? null;
+    });
     const composing = ref(false);
     const canCompleteLearning = computed(() => {
       return (
@@ -221,6 +265,13 @@ export default defineComponent({
       );
     });
     const currentLearningCard = computed(() => learningCards.value[learningIndex.value] ?? null);
+    const finalizeDisabled = computed(() => {
+      if (finalizing.value) return true;
+      if (finalizeMode.value === 'reuse') {
+        return !selectedGroupId.value;
+      }
+      return newGroupTitle.value.trim().length === 0;
+    });
 
     async function composeAnswer() {
       if (!session.value || !lastEval.value || phaseIsRunning.value) return;
@@ -230,36 +281,89 @@ export default defineComponent({
         const summary = task.result_summary as Record<string, string>;
         answerTitle.value = summary?.title ?? question.value?.title ?? '';
         answerText.value = summary?.text ?? draft.value;
-        showFinalize.value = true;
+        await openFinalize(true);
       } finally {
         composing.value = false;
       }
     }
 
-    function openFinalize() {
+    async function openFinalize(preserveAnswer = false) {
       if (sessionCompleted.value || phaseIsRunning.value) return;
+      if (question.value && !groupsLoading.value && !answerGroups.value.length) {
+        await loadAnswerGroupsForQuestion(question.value.id);
+      }
+      const compare = lastCompare.value;
+      if (compare?.decision === 'new_group') {
+        finalizeMode.value = 'new';
+        selectedGroupId.value = null;
+        newGroupTitle.value = question.value?.title ?? '新答案组';
+      } else if (compare?.decision === 'reuse' && compare.matchedGroupId) {
+        const exists = answerGroups.value.find((group) => group.id === compare.matchedGroupId);
+        finalizeMode.value = 'reuse';
+        if (exists) {
+          selectedGroupId.value = compare.matchedGroupId;
+          newGroupTitle.value = '';
+        } else if (answerGroups.value.length) {
+          selectedGroupId.value = answerGroups.value[0].id;
+          newGroupTitle.value = '';
+        } else {
+          finalizeMode.value = 'new';
+          selectedGroupId.value = null;
+          newGroupTitle.value = question.value?.title ?? '新答案组';
+        }
+      } else if (answerGroups.value.length) {
+        finalizeMode.value = 'reuse';
+        selectedGroupId.value = answerGroups.value[0].id;
+        newGroupTitle.value = '';
+      } else {
+        finalizeMode.value = 'new';
+        selectedGroupId.value = null;
+        newGroupTitle.value = question.value?.title ?? '新答案组';
+      }
+      if (!preserveAnswer) {
+        answerTitle.value = question.value?.title ?? '';
+        answerText.value = draft.value;
+      }
       showFinalize.value = true;
-      answerTitle.value = question.value?.title ?? '';
-      answerText.value = draft.value;
     }
 
     async function finalize() {
       if (!session.value || phaseIsRunning.value) return;
       finalizing.value = true;
       try {
-        await sessionStore.finalizeSession(session.value.id, {
+        const payload = {
           answer_title: answerTitle.value || '最终答案',
           answer_text: answerText.value || draft.value,
-        });
+        } as SessionFinalizePayload;
+        if (finalizeMode.value === 'reuse' && selectedGroupId.value) {
+          payload.answer_group_id = selectedGroupId.value;
+        } else {
+          payload.group_title = newGroupTitle.value || question.value?.title || '新答案组';
+        }
+        await sessionStore.finalizeSession(session.value.id, payload);
+        if (question.value) {
+          await loadAnswerGroupsForQuestion(question.value.id);
+        }
         showFinalize.value = false;
       } finally {
         finalizing.value = false;
-      }
+        }
     }
 
     async function markLearningDone() {
       if (!session.value || !canCompleteLearning.value) return;
       await sessionStore.completeLearning(session.value.id);
+    }
+
+    function switchFinalizeMode(mode: 'reuse' | 'new') {
+      finalizeMode.value = mode;
+      if (mode === 'reuse') {
+        if (!selectedGroupId.value && answerGroups.value.length) {
+          selectedGroupId.value = answerGroups.value[0].id;
+        }
+      } else {
+        newGroupTitle.value = newGroupTitle.value || question.value?.title ?? '新答案组';
+      }
     }
 
     function resetLearningState() {
@@ -416,6 +520,7 @@ export default defineComponent({
             <p>
               {question.value.year}/{question.value.month} · {question.value.type}
             </p>
+            {groupsError.value && <p class="error">{groupsError.value}</p>}
           </header>
         )}
         {deleteError.value && <p class="error">{deleteError.value}</p>}
@@ -475,6 +580,34 @@ export default defineComponent({
           </section>
         )}
 
+        {lastCompare.value && (
+          <section class="compare-panel">
+            <h3>答案组建议</h3>
+            <p>
+              LLM 判定：
+              {lastCompare.value.decision === 'new_group'
+                ? '建议创建新的答案组'
+                : lastCompare.value.decision === 'reuse'
+                ? '复用现有答案组'
+                : '未知'}
+            </p>
+            {lastCompare.value.reason && <p>理由：{lastCompare.value.reason}</p>}
+            {lastCompare.value.differences && lastCompare.value.differences.length > 0 && (
+              <details>
+                <summary>差异详情</summary>
+                <ul>
+                  {lastCompare.value.differences.map((item, index) => (
+                    <li key={`${item}-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {lastCompare.value.decision === 'reuse' && matchedAnswerGroup.value && (
+              <p>推荐复用答案组：{matchedAnswerGroup.value.title}</p>
+            )}
+          </section>
+        )}
+
         <section class="workspace">
           <div class="phase-indicator">
             当前阶段：<strong>{currentPhase.value}</strong>
@@ -530,14 +663,14 @@ export default defineComponent({
             >
               {composing.value ? '生成中...' : 'LLM 生成答案'}
             </button>
-            <button type="button" onClick={openFinalize} disabled={sessionCompleted.value || phaseIsRunning.value}>
+            <button type="button" onClick={() => openFinalize()} disabled={sessionCompleted.value || phaseIsRunning.value}>
               {sessionCompleted.value ? '已完成' : '完成 Session'}
             </button>
             {currentPhase.value === 'learning' && (
               <button
                 type="button"
                 onClick={markLearningDone}
-                disabled={sessionCompleted.value || phaseIsRunning.value}
+                disabled={!canCompleteLearning.value}
               >
                 标记学习完成
               </button>
@@ -713,6 +846,58 @@ export default defineComponent({
         {showFinalize.value && (
           <section class="finalize-panel">
             <h3>确认答案</h3>
+            <div class="finalize-mode">
+              <label>
+                <input
+                  type="radio"
+                  value="reuse"
+                  checked={finalizeMode.value === 'reuse'}
+                  disabled={!answerGroups.value.length}
+                  onChange={() => switchFinalizeMode('reuse')}
+                />
+                复用现有答案组
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  value="new"
+                  checked={finalizeMode.value === 'new'}
+                  onChange={() => switchFinalizeMode('new')}
+                />
+                创建新答案组
+              </label>
+            </div>
+            {finalizeMode.value === 'reuse' ? (
+              answerGroups.value.length ? (
+                <label>
+                  <span>选择答案组</span>
+                  <select
+                    value={selectedGroupId.value ?? undefined}
+                    onChange={(e) => {
+                      const value = Number((e.target as HTMLSelectElement).value);
+                      selectedGroupId.value = Number.isFinite(value) ? value : null;
+                    }}
+                  >
+                    {answerGroups.value.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <p>暂无可复用的答案组，将自动创建新答案组。</p>
+              )
+            ) : (
+              <label>
+                <span>新答案组标题</span>
+                <input
+                  value={newGroupTitle.value}
+                  onInput={(e) => (newGroupTitle.value = (e.target as HTMLInputElement).value)}
+                  placeholder="请输入新答案组标题"
+                />
+              </label>
+            )}
             <label>
               <span>答案标题</span>
               <input value={answerTitle.value} onInput={(e) => (answerTitle.value = (e.target as HTMLInputElement).value)} />
@@ -729,7 +914,7 @@ export default defineComponent({
               <button type="button" onClick={() => (showFinalize.value = false)}>
                 取消
               </button>
-              <button type="button" onClick={finalize} disabled={finalizing.value}>
+              <button type="button" onClick={finalize} disabled={finalizeDisabled.value}>
                 {finalizing.value ? '提交中...' : '确认并生成答案'}
               </button>
             </div>
@@ -739,3 +924,6 @@ export default defineComponent({
     );
   },
 });
+    const finalizeMode = ref<'reuse' | 'new'>('reuse');
+    const selectedGroupId = ref<number | null>(null);
+    const newGroupTitle = ref('');
