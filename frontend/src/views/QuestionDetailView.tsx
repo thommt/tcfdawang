@@ -21,8 +21,33 @@ export default defineComponent({
     const groupLoading = ref(false);
     const deletingGroupId = ref<number | null>(null);
     const groupError = ref('');
+    const deletingSessionId = ref<number | null>(null);
+    const sessionError = ref('');
 
     const relatedSessions = computed(() => sessionStore.sessionsByQuestion(questionId));
+    const answerIdToGroupId = computed(() => {
+      const map = new Map<number, number>();
+      for (const group of answerGroups.value) {
+        for (const answer of group.answers) {
+          map.set(answer.id, group.id);
+        }
+      }
+      return map;
+    });
+    const sessionsByGroup = computed(() => {
+      const grouped: Record<number, typeof relatedSessions.value> = {};
+      for (const session of relatedSessions.value) {
+        if (!session.answer_id) continue;
+        const groupId = answerIdToGroupId.value.get(session.answer_id);
+        if (!groupId) continue;
+        if (!grouped[groupId]) grouped[groupId] = [];
+        grouped[groupId].push(session);
+      }
+      return grouped;
+    });
+    const looseSessions = computed(() =>
+      relatedSessions.value.filter((session) => !session.answer_id || !answerIdToGroupId.value.get(session.answer_id))
+    );
 
     async function loadQuestion() {
       loading.value = true;
@@ -69,6 +94,21 @@ export default defineComponent({
       }
     }
 
+    async function handleDeleteSession(sessionId: number) {
+      if (deletingSessionId.value) return;
+      if (!window.confirm('确定删除该 Session 吗？该操作不可恢复。')) return;
+      deletingSessionId.value = sessionId;
+      sessionError.value = '';
+      try {
+        await sessionStore.deleteSession(sessionId);
+      } catch (err) {
+        sessionError.value = '删除 Session 失败';
+        console.error(err);
+      } finally {
+        deletingSessionId.value = null;
+      }
+    }
+
     onMounted(() => {
       loadQuestion();
     });
@@ -105,7 +145,8 @@ export default defineComponent({
           <header>
             <h3>历史 Session</h3>
           </header>
-          {relatedSessions.value.length ? (
+          {sessionError.value && <p class="error">{sessionError.value}</p>}
+          {looseSessions.value.length ? (
             <table>
               <thead>
                 <tr>
@@ -113,14 +154,12 @@ export default defineComponent({
                   <th>类型</th>
                   <th>状态</th>
                   <th>最近反馈</th>
-                  <th>复习要点</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
-                {relatedSessions.value.map((session) => {
+                {looseSessions.value.map((session) => {
                   const lastEval = (session.progress_state?.last_eval ?? {}) as Record<string, unknown>;
-                  const reviewNotes = session.progress_state?.review_notes as string | undefined;
                   return (
                     <tr key={session.id}>
                       <td>{session.id}</td>
@@ -130,17 +169,17 @@ export default defineComponent({
                         {'feedback' in lastEval ? `${lastEval.feedback as string} (分数: ${lastEval.score ?? '无'})` : '暂无'}
                       </td>
                       <td>
-                        {reviewNotes ? (
-                          <span title={reviewNotes}>
-                            {reviewNotes.slice(0, 30)}
-                            {reviewNotes.length > 30 ? '…' : ''}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td>
                         <RouterLink to={`/sessions/${session.id}`}>进入</RouterLink>
+                        {!session.answer_id && session.status !== 'completed' && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSession(session.id)}
+                            disabled={deletingSessionId.value === session.id}
+                            style="margin-left:0.5rem;"
+                          >
+                            删除
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -148,7 +187,7 @@ export default defineComponent({
               </tbody>
             </table>
           ) : (
-            <p>该题目前还没有 Session。</p>
+            <p>暂无未绑定答案组的 Session。</p>
           )}
         </section>
 
@@ -170,6 +209,21 @@ export default defineComponent({
                   </details>
                 )}
                 <p>共 {group.answers.length} 个版本</p>
+                {sessionsByGroup.value[group.id] && sessionsByGroup.value[group.id].length > 0 && (
+                  <div class="group-sessions">
+                    <h5>关联 Session</h5>
+                    <ul>
+                      {sessionsByGroup.value[group.id].map((session) => (
+                        <li key={session.id}>
+                          #{session.id} · {session.status}
+                          <RouterLink style="margin-left:0.5rem;" to={`/sessions/${session.id}`}>
+                            查看
+                          </RouterLink>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <ul>
                   {group.answers.map((answer) => (
                     <li key={answer.id}>

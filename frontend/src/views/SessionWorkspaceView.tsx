@@ -23,9 +23,6 @@ export default defineComponent({
     const reviewSourceAnswer = ref<Answer | null>(null);
     const reviewSourceLoading = ref(false);
     const reviewSourceError = ref('');
-    const reviewNotes = ref('');
-    const savingReviewNotes = ref(false);
-    const reviewNoteMessage = ref('');
 
     const showFinalize = ref(false);
     const answerTitle = ref('');
@@ -40,6 +37,7 @@ export default defineComponent({
 
     const session = computed<Session | null>(() => sessionStore.currentSession);
     const sessionHistory = computed(() => sessionStore.history);
+    const historyTasks = computed(() => sessionHistory.value?.tasks ?? []);
     const historyLoading = computed(() => sessionStore.historyLoading);
     const evalHistory = computed(() =>
       sessionHistory.value ? sessionHistory.value.tasks.filter((task) => task.type === 'eval') : []
@@ -48,13 +46,6 @@ export default defineComponent({
       sessionHistory.value ? sessionHistory.value.tasks.filter((task) => task.type === 'compose') : []
     );
     const conversations = computed(() => sessionHistory.value?.conversations ?? []);
-    const reviewNotesHistory = computed(() => {
-      const entries = sessionHistory.value?.session.progress_state?.review_notes_history;
-      if (!entries || !Array.isArray(entries)) {
-        return [];
-      }
-      return entries as Array<{ note: string; saved_at: string }>;
-    });
     const isReviewSession = computed(() => session.value?.session_type === 'review');
     const reviewSourceId = computed(() => {
       const current = session.value;
@@ -94,10 +85,6 @@ export default defineComponent({
       };
     });
 
-    const currentPhase = computed(() => {
-      const phase = session.value?.progress_state?.phase as string | undefined;
-      return phase || 'draft';
-    });
 
     async function loadReviewSource(answerId: number | null) {
       if (!answerId) {
@@ -120,7 +107,6 @@ export default defineComponent({
       await sessionStore.loadSession(sessionId);
       const current = sessionStore.currentSession;
       draft.value = current?.user_answer_draft ?? '';
-      reviewNotes.value = (current?.progress_state?.review_notes as string | undefined) ?? '';
       if (current) {
         const existing = questionStore.items.find((item) => item.id === current.question_id);
         if (existing) {
@@ -138,8 +124,6 @@ export default defineComponent({
       (value) => {
         if (value) {
           draft.value = value.user_answer_draft ?? '';
-          reviewNotes.value = (value.progress_state?.review_notes as string | undefined) ?? '';
-          reviewNoteMessage.value = '';
           loadReviewSource(reviewSourceId.value);
         }
       }
@@ -165,21 +149,6 @@ export default defineComponent({
         await sessionStore.saveDraft(session.value.id, draft.value);
       } finally {
         saving.value = false;
-      }
-    }
-
-    async function saveReviewNote() {
-      if (!session.value) return;
-      savingReviewNotes.value = true;
-      reviewNoteMessage.value = '';
-      try {
-        await sessionStore.saveReviewNotes(session.value.id, reviewNotes.value);
-        reviewNoteMessage.value = '已保存改进要点';
-      } catch (err) {
-        reviewNoteMessage.value = '保存失败，请重试';
-        console.error(err);
-      } finally {
-        savingReviewNotes.value = false;
       }
     }
 
@@ -296,25 +265,6 @@ export default defineComponent({
                 </details>
               </article>
             )}
-            <div class="review-notes">
-              <label>
-                <span>本次改进要点</span>
-                <textarea
-                  rows={4}
-                  value={reviewNotes.value}
-                  onInput={(event) => {
-                    reviewNotes.value = (event.target as HTMLTextAreaElement).value;
-                  }}
-                  placeholder="记录本次复习相较原答案的改进，例如新增论据、调整结构、强化语法点。"
-                ></textarea>
-              </label>
-              <div class="actions">
-                <button type="button" onClick={saveReviewNote} disabled={savingReviewNotes.value}>
-                  {savingReviewNotes.value ? '保存中...' : '保存改进要点'}
-                </button>
-                {reviewNoteMessage.value && <p class="hint">{reviewNoteMessage.value}</p>}
-              </div>
-            </div>
           </section>
         )}
 
@@ -475,23 +425,6 @@ export default defineComponent({
             </table>
           )}
         </section>
-        {isReviewSession.value && (
-          <section class="history-panel">
-            <h3>改进历史</h3>
-            {historyLoading.value && <p>加载中...</p>}
-            {!historyLoading.value && reviewNotesHistory.value.length === 0 && <p>尚无改进记录。</p>}
-            {!historyLoading.value && reviewNotesHistory.value.length > 0 && (
-              <ul class="history-list">
-                {reviewNotesHistory.value.map((entry, index) => (
-                  <li key={`${entry.saved_at}-${index}`}>
-                    <header>{new Date(entry.saved_at).toLocaleString()}</header>
-                    <p>{entry.note || '未记录任何内容'}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
         <section class="history-panel">
           <h3>LLM 日志</h3>
           {historyLoading.value && <p>加载中...</p>}
@@ -540,4 +473,3 @@ export default defineComponent({
     );
   },
 });
-    const historyTasks = computed(() => sessionHistory.value?.tasks ?? []);

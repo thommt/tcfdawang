@@ -100,31 +100,6 @@ describe('Session Store', () => {
     reviewSpy.mockRestore();
   });
 
-  it('saves review notes', async () => {
-    const updateSpy = vi.spyOn(api, 'updateSession').mockResolvedValue({
-      ...mockSession,
-      progress_state: { review_notes: 'more details', review_notes_history: [] },
-    });
-    const historySpy = vi.spyOn(api, 'fetchSessionHistory').mockResolvedValue({
-      session: {
-        ...mockSession,
-        progress_state: { review_notes: 'more details', review_notes_history: [] },
-      },
-      tasks: [],
-      conversations: [],
-    });
-    const store = useSessionStore();
-    store.sessions = [mockSession];
-    store.currentSession = mockSession;
-    await store.saveReviewNotes(1, 'more details');
-    expect(updateSpy).toHaveBeenCalled();
-    const payload = updateSpy.mock.calls[0][1] as { progress_state: Record<string, unknown> };
-    expect(payload.progress_state.review_notes).toBe('more details');
-    expect(Array.isArray(payload.progress_state.review_notes_history)).toBe(true);
-    historySpy.mockRestore();
-    updateSpy.mockRestore();
-  });
-
   it('composes answer via LLM task', async () => {
     vi.spyOn(api, 'fetchSessionById').mockResolvedValue({
       ...mockSession,

@@ -15,6 +15,7 @@ import {
   fetchSessionHistory,
   createReviewSession as createReviewSessionApi,
   completeLearning,
+  deleteSession as deleteSessionApi,
 } from '../api/sessions';
 
 interface State {
@@ -91,29 +92,6 @@ export const useSessionStore = defineStore('sessions', {
     async saveDraft(sessionId: number, draft: string) {
       return this.updateSession(sessionId, { user_answer_draft: draft });
     },
-    async saveReviewNotes(sessionId: number, notes: string) {
-      const current =
-        this.currentSession?.id === sessionId
-          ? this.currentSession
-          : this.sessions.find((session) => session.id === sessionId) || null;
-      const baseState = current?.progress_state ?? {};
-      const history = Array.isArray(baseState.review_notes_history)
-        ? [...(baseState.review_notes_history as Array<Record<string, string>>)]
-        : [];
-      history.push({
-        note: notes,
-        saved_at: new Date().toISOString(),
-      });
-      const updated = await this.updateSession(sessionId, {
-        progress_state: {
-          ...baseState,
-          review_notes: notes,
-          review_notes_history: history,
-        },
-      });
-      await this.loadSessionHistory(sessionId);
-      return updated;
-    },
     async loadSessionHistory(sessionId: number) {
       this.historyLoading = true;
       try {
@@ -170,6 +148,14 @@ export const useSessionStore = defineStore('sessions', {
       this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
       await this.loadSessionHistory(sessionId);
       return session;
+    },
+    async deleteSession(sessionId: number) {
+      await deleteSessionApi(sessionId);
+      this.sessions = this.sessions.filter((item) => item.id !== sessionId);
+      if (this.currentSession?.id === sessionId) {
+        this.currentSession = null;
+        this.history = null;
+      }
     },
     sessionsByQuestion(questionId: number) {
       return this.sessions.filter((session) => session.question_id === questionId);

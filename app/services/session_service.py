@@ -66,6 +66,10 @@ class SessionService:
 
     def delete_session(self, session_id: int) -> None:
         session_entity = self._get_session_entity(session_id)
+        if session_entity.answer_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已关联答案的 Session 不可删除")
+        if session_entity.status == "completed":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已完成的 Session 不可删除")
         tasks = self.session.exec(select(Task).where(Task.session_id == session_id)).all()
         for task in tasks:
             conversation = self.session.exec(
@@ -198,6 +202,11 @@ class SessionService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer group not found")
         answers = self.session.exec(select(AnswerSchema).where(AnswerSchema.answer_group_id == group_id)).all()
         for answer in answers:
+            sessions = self.session.exec(
+                select(SessionSchema).where(SessionSchema.answer_id == answer.id)
+            ).all()
+            for session in sessions:
+                self.delete_session(session.id)
             self._delete_answer_dependencies(answer.id)
             self.session.delete(answer)
         self.session.delete(group)
@@ -336,27 +345,12 @@ class SessionService:
             conversations = []
         conversation_reads = [LLMConversationRead.model_validate(conv) for conv in conversations]
 
-        review_notes_history = []
-        for session_entry in sessions:
-            history_entries = session_entry.progress_state.get("review_notes_history")
-            if isinstance(history_entries, list):
-                for entry in history_entries:
-                    if isinstance(entry, dict):
-                        review_notes_history.append(
-                            {
-                                "session_id": session_entry.id,
-                                "note": entry.get("note"),
-                                "saved_at": entry.get("saved_at"),
-                            }
-                        )
-
         return AnswerHistoryRead(
             answer=self._to_answer_read(answer),
             group=self._to_answer_group_read(group, include_answers=True),
             sessions=session_reads,
             tasks=task_reads,
             conversations=conversation_reads,
-            review_notes_history=review_notes_history,
         )
 
     # Helpers

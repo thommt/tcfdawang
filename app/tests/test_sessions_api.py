@@ -588,3 +588,19 @@ def test_delete_session_removes_tasks_and_logs(client: TestClient) -> None:
     delete_resp = client.delete(f"/sessions/{session_id}")
     assert delete_resp.status_code == 204
     assert client.get(f"/sessions/{session_id}").status_code == 404
+
+
+def test_delete_session_disallowed_when_answer_exists(client: TestClient) -> None:
+    question_id = _create_question(client)
+    session_resp = client.post(
+        "/sessions",
+        json={"question_id": question_id, "user_answer_draft": "Texte"},
+    ).json()
+    finalize_payload = {
+        "group_title": "测试",
+        "answer_title": "答案",
+        "answer_text": "Texte complet",
+    }
+    client.post(f"/sessions/{session_resp['id']}/finalize", json=finalize_payload)
+    resp = client.delete(f"/sessions/{session_resp['id']}")
+    assert resp.status_code == 400

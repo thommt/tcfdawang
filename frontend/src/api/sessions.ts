@@ -62,6 +62,10 @@ export async function completeLearning(sessionId: number): Promise<Session> {
   return response.data;
 }
 
+export async function deleteSession(sessionId: number): Promise<void> {
+  await apiClient.delete(`${resource}/${sessionId}`);
+}
+
 export async function fetchSessionHistory(sessionId: number): Promise<SessionHistory> {
   const response = await apiClient.get<SessionHistory>(`${resource}/${sessionId}/history`);
   return response.data;

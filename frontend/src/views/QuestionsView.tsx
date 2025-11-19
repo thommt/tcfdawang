@@ -135,39 +135,7 @@ export default defineComponent({
     );
     const totalItems = computed(() => filteredItems.value.length);
 
-    const reviewInfoByQuestion = computed(() => {
-      const info = new Map<number, { latestNote: string; latestAt: string | null; count: number }>();
-      sessionStore.sessions.forEach((session) => {
-        const questionId = session.question_id;
-        const historyEntries = Array.isArray(session.progress_state?.review_notes_history)
-          ? (session.progress_state?.review_notes_history as Array<{ note?: string; saved_at?: string }>)
-          : [];
-        let entries = historyEntries.filter((entry) => typeof entry.note === 'string' && entry.note.trim().length);
-        if (!entries.length && session.progress_state?.review_notes) {
-          entries = [
-            {
-              note: session.progress_state.review_notes as string,
-              saved_at: (session.completed_at ?? session.started_at)?.toString(),
-            },
-          ];
-        }
-        if (!entries.length) {
-          return;
-        }
-        const current = info.get(questionId) ?? { latestNote: '', latestAt: null, count: 0 };
-        entries.forEach((entry) => {
-          if (!entry.note) return;
-          current.count += 1;
-          const savedAt = entry.saved_at ?? '';
-          if (!current.latestAt || (savedAt && savedAt > current.latestAt)) {
-            current.latestAt = savedAt;
-            current.latestNote = entry.note;
-          }
-        });
-        info.set(questionId, current);
-      });
-      return info;
-    });
+    const reviewInfoByQuestion = computed(() => new Map<number, never>());
 
     function toggleTag(tag: string) {
       if (selectedTags.value.includes(tag)) {
@@ -268,7 +236,6 @@ export default defineComponent({
                 <th>来源</th>
                 <th>日期</th>
                 <th>标签</th>
-                <th>复习要点</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -285,23 +252,6 @@ export default defineComponent({
                       {item.year}/{item.month}
                     </td>
                     <td>{item.tags.join(', ')}</td>
-                    <td>
-                      {(() => {
-                        const info = reviewInfoByQuestion.value.get(item.id);
-                        if (!info || !info.latestNote) {
-                          return '—';
-                        }
-                        const preview = info.latestNote.slice(0, 40);
-                        const suffix = info.latestNote.length > 40 ? '…' : '';
-                        const title = info.count > 1 ? `${info.latestNote} (共${info.count}条)` : info.latestNote;
-                        return (
-                          <span title={title}>
-                            {preview}
-                            {suffix}
-                          </span>
-                        );
-                      })()}
-                    </td>
                     <td>
                       <button onClick={() => edit(item)}>编辑</button>
                       <RouterLink class="link" to={`/questions/${item.id}`}>

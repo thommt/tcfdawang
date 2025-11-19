@@ -446,12 +446,10 @@ export default defineComponent({
                         <th>状态</th>
                         <th>开始时间</th>
                         <th>完成时间</th>
-                        <th>复习要点</th>
                       </tr>
                     </thead>
                     <tbody>
                       {history.value.sessions.map((session) => {
-                        const reviewNotes = session.progress_state?.review_notes as string | undefined;
                         return (
                           <tr key={session.id}>
                             <td>{session.id}</td>
@@ -459,13 +457,6 @@ export default defineComponent({
                             <td>{session.status}</td>
                             <td>{new Date(session.started_at).toLocaleString()}</td>
                             <td>{session.completed_at ? new Date(session.completed_at).toLocaleString() : '—'}</td>
-                            <td>
-                              {reviewNotes ? (
-                                <span title={reviewNotes}>{reviewNotes.slice(0, 40)}{reviewNotes.length > 40 ? '…' : ''}</span>
-                              ) : (
-                                '—'
-                              )}
-                            </td>
                           </tr>
                         );
                       })}
@@ -475,21 +466,6 @@ export default defineComponent({
                   <p>尚无与此答案关联的 Session。</p>
                 )}
               </div>
-              {history.value.review_notes_history.length > 0 && (
-                <div class="history-block">
-                  <h5>复习要点历史</h5>
-                  <ul class="history-list">
-                    {history.value.review_notes_history.map((entry, index) => (
-                      <li key={`${entry.session_id}-${entry.saved_at}-${index}`}>
-                        <header>
-                          Session #{entry.session_id} · {entry.saved_at ? new Date(entry.saved_at).toLocaleString() : '时间未知'}
-                        </header>
-                        <p>{entry.note || '未记录任何内容'}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
               <div class="history-block">
                 <h5>任务记录</h5>
                 {history.value.tasks.length ? (

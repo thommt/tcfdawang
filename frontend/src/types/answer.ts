@@ -100,5 +100,4 @@ export interface AnswerHistory {
   sessions: Session[];
   tasks: FetchTask[];
   conversations: LLMConversationLog[];
-  review_notes_history: Array<{ session_id: number; note: string; saved_at: string }>;
 }
