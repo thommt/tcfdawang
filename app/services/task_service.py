@@ -84,7 +84,7 @@ class TaskService:
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-        self._require_phase(session_entity, {"draft"}, "评估任务")
+        self._require_phase(session_entity, {"draft", "await_eval_confirm", "await_new_group"}, "评估任务")
         self._set_phase_state(session_entity, status="running", clear_error=True)
         task = Task(type="eval", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
@@ -164,6 +164,16 @@ class TaskService:
         try:
             start = datetime.now(timezone.utc)
             progress_state = dict(session_entity.progress_state or {})
+            outline_plan = self._get_question_direction_plan(question)
+            if outline_plan and not progress_state.get("outline_plan"):
+                progress_state["outline_plan"] = outline_plan
+            if not progress_state.get("selected_direction_descriptor"):
+                recommended = (outline_plan or {}).get("recommended") or {}
+                if descriptor := recommended.get("title"):
+                    progress_state["selected_direction_descriptor"] = descriptor
+            session_entity.progress_state = progress_state
+            self.session.add(session_entity)
+            self.session.commit()
             last_eval = progress_state.get("last_eval") or {}
             eval_summary = None
             if last_eval:
@@ -176,12 +186,18 @@ class TaskService:
                     parts.append(f"反馈: {feedback}")
                 if parts:
                     eval_summary = "；".join(parts)
+            direction_hint = self._build_direction_hint(
+                outline_plan,
+                progress_state.get("selected_direction_descriptor"),
+                session_entity.answer_id is None,
+            )
             compose_result = self.llm_client.compose_answer(
                 question_type=question.type,
                 question_title=question.title,
                 question_body=question.body,
                 answer_draft=session_entity.user_answer_draft or "",
                 eval_summary=eval_summary,
+                direction_hint=direction_hint,
             )
             prompt_messages = compose_result.pop("_prompt_messages", None)
             saved_at = datetime.now(timezone.utc)
@@ -262,32 +278,34 @@ class TaskService:
         answer_groups = self.session.exec(
             select(AnswerGroupSchema).where(AnswerGroupSchema.question_id == question.id)
         ).all()
-        reference_answers: list[dict[str, Any]] = []
+        existing_groups: list[dict[str, Any]] = []
         for group in answer_groups:
-            latest_answer = self.session.exec(
-                select(AnswerSchema)
-                .where(AnswerSchema.answer_group_id == group.id)
-                .order_by(AnswerSchema.version_index.desc())
-            ).first()
-            if latest_answer:
-                reference_answers.append(
-                    {
-                        "answer_group_id": group.id,
-                        "version_index": latest_answer.version_index,
-                        "text": latest_answer.text,
-                    }
-                )
+            existing_groups.append(
+                {
+                    "answer_group_id": group.id,
+                    "direction_descriptor": group.direction_descriptor or f"方向#{group.id}",
+                }
+            )
         task = Task(type="compare", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
         self.session.commit()
+        progress_state = dict(session_entity.progress_state or {})
         try:
             start = datetime.now(timezone.utc)
+            progress_state = dict(session_entity.progress_state or {})
+            outline_plan = progress_state.get("outline_plan")
+            if not outline_plan:
+                outline_plan = self._get_question_direction_plan(question)
+                if outline_plan:
+                    progress_state["outline_plan"] = outline_plan
+            direction_plan_text = self._format_outline_plan(outline_plan)
             compare_result = self.llm_client.compare_answer(
                 question_type=question.type,
                 question_title=question.title,
                 question_body=question.body,
                 answer_draft=session_entity.user_answer_draft or "",
-                reference_answers=reference_answers,
+                direction_plan=direction_plan_text,
+                existing_groups=existing_groups,
             )
             prompt_messages = compare_result.pop("_prompt_messages", None)
             saved_at = datetime.now(timezone.utc)
@@ -299,7 +317,7 @@ class TaskService:
                 messages={
                     "question": question.body,
                     "draft": session_entity.user_answer_draft or "",
-                    "reference_answers": reference_answers,
+                    "existing_groups": existing_groups,
                     "prompt_messages": prompt_messages,
                 },
                 result=compare_result,
@@ -307,13 +325,22 @@ class TaskService:
                 latency_ms=latency,
             )
             self.session.add(conversation)
-            progress_state = dict(session_entity.progress_state or {})
             compare_payload = dict(compare_result)
             compare_payload["saved_at"] = saved_at.isoformat()
             progress_state["last_compare"] = compare_payload
+            direction_match = compare_payload.get("direction_descriptor")
+            if direction_match:
+                progress_state["direction_match"] = direction_match
+                progress_state["selected_direction_descriptor"] = direction_match
             decision = compare_payload.get("decision")
             if decision == "reuse":
                 progress_state["phase"] = "gap_highlight"
+                if not direction_match and compare_payload.get("matched_answer_group_id"):
+                    matched_group = self.session.get(
+                        AnswerGroupSchema, compare_payload.get("matched_answer_group_id")
+                    )
+                    if matched_group and matched_group.direction_descriptor:
+                        progress_state["selected_direction_descriptor"] = matched_group.direction_descriptor
             elif decision == "new_group":
                 progress_state["phase"] = "await_new_group"
             session_entity.progress_state = progress_state
@@ -698,6 +725,78 @@ class TaskService:
         if not task:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
         return task
+
+    def _get_question_direction_plan(self, question: Question | None) -> dict | None:
+        if not question:
+            return None
+        plan = getattr(question, "direction_plan", None)
+        if isinstance(plan, dict) and plan:
+            return plan
+        return None
+
+    def _format_outline_plan(self, plan: dict | None) -> str:
+        if not plan:
+            return "尚未生成题意分析"
+        recommended = plan.get("recommended") or {}
+        lines = []
+        if recommended:
+            title = recommended.get("title") or "未命名方向"
+            lines.append(f"推荐方向：{title}")
+            summary = recommended.get("summary")
+            if summary:
+                lines.append(f"摘要：{summary}")
+            stance = recommended.get("stance")
+            if stance:
+                lines.append(f"立场：{stance}")
+            structure = recommended.get("structure") or []
+            if structure:
+                lines.append("结构建议：")
+                lines.extend(f"- {item}" for item in structure)
+        alternatives = plan.get("alternatives") or []
+        if alternatives:
+            lines.append("其他可选方向：")
+            for alt in alternatives:
+                title = alt.get("title") or "未命名方向"
+                summary = alt.get("summary") or ""
+                lines.append(f"- {title}: {summary}")
+        return "\n".join(lines) if lines else "尚未生成题意分析"
+
+    def _extract_direction_detail(self, plan: dict | None, name: str | None) -> dict | None:
+        if not plan or not name:
+            return None
+        candidates = []
+        recommended = plan.get("recommended")
+        if recommended:
+            candidates.append(recommended)
+        candidates.extend(plan.get("alternatives") or [])
+        for item in candidates:
+            if item and item.get("title") == name:
+                return item
+        return None
+
+    def _build_direction_hint(
+        self,
+        plan: dict | None,
+        selected_direction: str | None,
+        is_first_answer: bool,
+    ) -> str:
+        if is_first_answer and plan:
+            return self._format_outline_plan(plan)
+        if selected_direction:
+            detail = self._extract_direction_detail(plan, selected_direction)
+            lines = [f"当前方向：{selected_direction}"]
+            if detail:
+                summary = detail.get("summary")
+                if summary:
+                    lines.append(f"摘要：{summary}")
+                structure = detail.get("structure") or []
+                if structure:
+                    lines.append("结构建议：")
+                    lines.extend(f"- {item}" for item in structure)
+            return "\n".join(lines)
+        if plan:
+            return self._format_outline_plan(plan)
+        return "尚未指定方向，可结合题意自行确定。"
 
     def run_structure_task_for_answer(self, answer_id: int) -> TaskRead:
         answer = self.session.get(AnswerSchema, answer_id)

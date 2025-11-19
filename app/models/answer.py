@@ -13,6 +13,7 @@ class AnswerGroupBase(BaseModel):
     slug: Optional[str] = None
     title: str
     descriptor: Optional[str] = None
+    direction_descriptor: Optional[str] = None
     dialogue_profile: dict = Field(default_factory=dict)
 
 

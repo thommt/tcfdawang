@@ -15,6 +15,7 @@ class AnswerGroup(SQLModel, table=True):
     slug: Optional[str] = Field(default=None, index=True)
     title: str
     descriptor: Optional[str] = None
+    direction_descriptor: Optional[str] = Field(default=None, description="题意方向，如支持/反对/分类")
     dialogue_profile: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON, nullable=False, default=dict),

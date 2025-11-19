@@ -1,3 +1,15 @@
+export interface DirectionPlanItem {
+  title: string;
+  summary?: string;
+  stance?: string | null;
+  structure?: string[];
+}
+
+export interface DirectionPlan {
+  recommended?: DirectionPlanItem;
+  alternatives?: DirectionPlanItem[];
+}
+
 export interface QuestionPayload {
   type: 'T2' | 'T3';
   source: string;
@@ -8,6 +20,7 @@ export interface QuestionPayload {
   title: string;
   body: string;
   tags: string[];
+  direction_plan?: DirectionPlan | null;
 }
 
 export interface Question extends QuestionPayload {

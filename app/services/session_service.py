@@ -140,6 +140,13 @@ class SessionService:
             self.session.add(group)
             self.session.commit()
             self.session.refresh(group)
+        progress_state = dict(session_entity.progress_state or {})
+        selected_direction = progress_state.get("selected_direction_descriptor")
+        if selected_direction and (not group.direction_descriptor):
+            group.direction_descriptor = selected_direction
+            self.session.add(group)
+            self.session.commit()
+            self.session.refresh(group)
 
         version_index = self._next_version_index(group.id)
         answer = AnswerSchema(

@@ -25,6 +25,18 @@ class ComposeAnswerSchema(BaseModel):
     text: str
 
 
+class DirectionPlanItemSchema(BaseModel):
+    title: str = Field(..., description="方向标题或简短描述")
+    summary: str = Field(..., description="该方向的中文概述")
+    stance: Optional[str] = Field(default=None, description="立场，如 support/oppose/balanced 等")
+    structure: List[str] = Field(default_factory=list, description="推荐的段落或论点顺序")
+
+
+class AnswerOutlinePlanSchema(BaseModel):
+    recommended: DirectionPlanItemSchema = Field(..., description="推荐方向")
+    alternatives: List[DirectionPlanItemSchema] = Field(default_factory=list, description="其他可选方向")
+
+
 class StructureSentenceSchema(BaseModel):
     text: str
     translation: Optional[str] = None
@@ -105,6 +117,7 @@ class ChunkLexemeResultSchema(BaseModel):
 class AnswerComparisonSchema(BaseModel):
     decision: str = Field(..., description="new_group 或 reuse")
     matched_answer_group_id: Optional[int] = Field(default=None, description="若 reuse，则返回匹配的答案组 ID")
+    direction_descriptor: Optional[str] = Field(default=None, description="草稿最匹配的方向名称")
     reason: str = Field(..., description="中文说明决策理由")
     differences: List[str] = Field(default_factory=list, description="若 reuse，指出差异点；若 new_group，可描述新主旨")
     coverage_score: Optional[float] = None

@@ -16,6 +16,7 @@ from app.llm import (
     build_answer_comparator_chain,
     build_gap_highlight_chain,
     build_refine_answer_chain,
+    build_outline_chain,
 )
 
 
@@ -73,6 +74,11 @@ class QuestionLLMClient:
             self._refine_answer_parser,
             self._refine_answer_prompt,
         ) = build_refine_answer_chain(self._llm)
+        (
+            self._outline_chain,
+            self._outline_parser,
+            self._outline_prompt,
+        ) = build_outline_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -228,12 +234,14 @@ class QuestionLLMClient:
         question_body: str,
         answer_draft: str,
         eval_summary: str | None = None,
+        direction_hint: str | None = None,
     ) -> dict:
         try:
             prompt_messages = self._compose_prompt.format_messages(
                 question_type=question_type,
                 question_title=question_title,
                 question_body=question_body,
+                direction_hint=direction_hint or "尚未指定方向，可按题意自行发挥。",
                 eval_summary=eval_summary or "暂无评估反馈",
                 answer_draft=answer_draft,
                 format_instructions=self._compose_parser.get_format_instructions(),
@@ -255,6 +263,36 @@ class QuestionLLMClient:
             raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
         return result
 
+    def plan_answer_direction(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        answer_draft: str,
+    ) -> dict:
+        try:
+            prompt_messages = self._outline_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                answer_draft=answer_draft or "（考生尚未填写草稿）",
+                format_instructions=self._outline_parser.get_format_instructions(),
+            )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._outline_parser.parse(response_text)
+            result = parsed.model_dump() if hasattr(parsed, "model_dump") else dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("LLM 请求失败，请检查配置或响应格式") from exc
+        return result
+
     def compare_answer(
         self,
         *,
@@ -262,19 +300,21 @@ class QuestionLLMClient:
         question_title: str,
         question_body: str,
         answer_draft: str,
-        reference_answers: list[dict],
+        direction_plan: str | None = None,
+        existing_groups: list[dict] | None = None,
     ) -> dict:
-        references_block = "\n".join(
-            f"- group_id={item.get('answer_group_id')} (version {item.get('version_index')}): {item.get('text')}"
-            for item in reference_answers
-        ) or "（无参考答案）"
+        groups_block = "\n".join(
+            f"- group_id={item.get('answer_group_id')}: {item.get('direction_descriptor') or '未标注'}"
+            for item in (existing_groups or [])
+        ) or "（尚无答案组）"
         try:
             prompt_messages = self._answer_comparator_prompt.format_messages(
                 question_type=question_type,
                 question_title=question_title,
                 question_body=question_body,
                 answer_draft=answer_draft,
-                reference_answers=references_block,
+                direction_plan=direction_plan or "暂无题意方向候选",
+                existing_groups=groups_block,
                 format_instructions=self._answer_comparator_parser.get_format_instructions(),
             )
             raw = self._llm.invoke(prompt_messages)

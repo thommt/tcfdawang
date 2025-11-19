@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import UniqueConstraint, Column, JSON
 from sqlmodel import Field, SQLModel
 
 
@@ -22,6 +22,10 @@ class Question(SQLModel, table=True):
     number: Optional[str] = Field(default=None)
     title: str
     body: str
+    direction_plan: dict = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False, default=dict),
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

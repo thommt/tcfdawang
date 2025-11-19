@@ -29,6 +29,7 @@ class QuestionService:
             number=data.number,
             title=data.title,
             body=data.body,
+            direction_plan=data.direction_plan or {},
         )
         self.session.add(question)
         try:
@@ -56,6 +57,8 @@ class QuestionService:
             existing.type = data.type
             existing.title = data.title
             existing.body = data.body
+            if data.direction_plan:
+                existing.direction_plan = data.direction_plan
             existing.updated_at = datetime.now(timezone.utc)
             self.session.add(existing)
             self.session.commit()
@@ -93,7 +96,18 @@ class QuestionService:
             )
         except LLMError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        try:
+            direction_plan = llm_client.plan_answer_direction(
+                question_type=question.type,
+                question_title=metadata.title,
+                question_body=question.body,
+                answer_draft="",
+            )
+        except LLMError:
+            direction_plan = question.direction_plan or {}
         question.title = metadata.title
+        if direction_plan:
+            question.direction_plan = direction_plan
         question.updated_at = datetime.now(timezone.utc)
         self.session.add(question)
         self.session.commit()

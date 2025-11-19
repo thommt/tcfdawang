@@ -341,21 +341,20 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 本文档用于指导后续需求细化与自动化代码生成。可在实现过程中更新。***
 ### 5.12 题意分析与答案方向
 
-1. **题意解析（Outline Planner）**  
-   - 在首次学习或复习时，用户提交草稿后先触发“题意分析”任务：读取题干、考生草稿（如有）并输出：  
-     - `direction_candidates`: 2~3 个可行的答题方向（如“支持政策并强调社会公平”“聚焦个人自由与隐私”“分类讨论家庭 vs 职场”等）。  
-     - `structure_plan`: 对每个方向给出推荐结构（引言/论点/例子/结论），以及是否适合单方论述或正反对比。  
-   - 分析结果写入 Session `progress_state['outline_plan']`，用户可在工作台查看。
+1. **题目级题意解析**  
+   - `Question.generate_metadata` 除生成标题/标签外，还要调用 Outline Planner，输出 2~3 个固定的方向候选（`direction_plan`）。  
+   - 每个方向包含 `title`（方向名）、`summary`、`stance`、`structure` 数组；结果写入 `questions.direction_plan`，作为题目的长期元信息。  
+   - Question API 返回 `direction_plan`，前端可展示推荐结构；同时 Question 记录哪些方向已经挂接了 AnswerGroup（由 `AnswerGroup.direction_descriptor` 反查）。
 
-2. **创建答案组（AnswerGroup）**  
-   - 在首次学习或用户选择“创建新答案组”时，根据题意解析确定该组的 `direction_descriptor`（如“社会公平”或“自由主义立场”），并写入 `AnswerGroup.direction_descriptor` 字段。  
-   - 如果考生草稿不足以判断方向（或空白），系统可随机/策略性选择解析结果中的一个方向作为默认方向。
+2. **答案组按方向划分**  
+   - 创建 AnswerGroup 时必须指定 `direction_descriptor`，值应来自 Question 的 direction_plan，除非显式新增自定义方向。  
+   - 同一方向只需一个 AnswerGroup；`Session` 若选择“新方向”但数据库没有对应 group，则自动创建新 group 并写入 descriptor。
 
-3. **生成初稿（AnswerComposer）**  
-   - Compose Prompt 需引用 `direction_descriptor` 和 `structure_plan`，按照对应方向生成 275~325 词（T3）或对话（T2）的法语答案。  
-   - 若 Session 带有评估反馈（`last_eval`），应在 Prompt 中附带“考官评价”，便于针对性改进。
+3. **生成答案（AnswerComposer）**  
+   - Compose Prompt 不再重新做题意分析，而是根据 Question.direction_plan + Session 中 `selected_direction_descriptor` 组装 `direction_hint`。  
+   - 若 Session 尚未选择方向，默认使用 question plan 的推荐方向，并在 `_build_direction_hint` 中给出结构提示。
 
-4. **再次学习 / i+n 版本**  
-   - Compare 阶段除判断 new_group/reuse 外，应结合 `direction_descriptor` 与题意解析，明确用户草稿更贴近哪一个方向。  
-   - 若草稿偏向新的方向（现有 AnswerGroup 均不匹配），提示用户创建新的 AnswerGroup；否则在匹配的 group 下创建 i+n 版本（`Answer.version_index + 1`）。  
-   - 方向匹配信息写入 `progress_state['direction_match']`，前端在 finalize 流程中展示“推荐方向”和差异说明。
+4. **方向匹配 / 决策**  
+   - Compare 阶段向 LLM 提供：题目、草稿、`direction_plan` 文本、已有 AnswerGroup 的方向列表。  
+   - LLM 判断草稿最贴近的方向并落在 `direction_descriptor` 中；若该方向已有 AnswerGroup → `decision=reuse` 且返回 `matched_answer_group_id`；否则 `decision=new_group` 并建议 descriptor。  
+   - Session `progress_state` 存储 `selected_direction_descriptor`/`direction_match`，Finalize 时写入新 AnswerGroup；前端据此展示“沿用哪个方向”或“需新增方向”提示。

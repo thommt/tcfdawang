@@ -14,6 +14,7 @@ class QuestionBase(BaseModel):
     number: Optional[str] = None
     title: str
     body: str
+    direction_plan: dict = Field(default_factory=dict)
 
 
 class QuestionCreate(QuestionBase):

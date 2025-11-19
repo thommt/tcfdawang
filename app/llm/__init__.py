@@ -9,6 +9,7 @@ from .schemas import (
     PhraseSplitQualitySchema,
     SentenceChunkResultSchema,
     ChunkLexemeResultSchema,
+    AnswerOutlinePlanSchema,
 )
 from .chains import (
     build_metadata_chain,
@@ -21,6 +22,7 @@ from .chains import (
     build_answer_comparator_chain,
     build_gap_highlight_chain,
     build_refine_answer_chain,
+    build_outline_chain,
 )
 
 __all__ = [
@@ -34,6 +36,7 @@ __all__ = [
     "PhraseSplitQualitySchema",
     "SentenceChunkResultSchema",
     "ChunkLexemeResultSchema",
+    "AnswerOutlinePlanSchema",
     "build_metadata_chain",
     "build_evaluation_chain",
     "build_compose_chain",
@@ -44,4 +47,5 @@ __all__ = [
     "build_answer_comparator_chain",
     "build_gap_highlight_chain",
     "build_refine_answer_chain",
+    "build_outline_chain",
 ]

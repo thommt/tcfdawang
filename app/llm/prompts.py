@@ -25,9 +25,8 @@ EVAL_HUMAN_PROMPT = (
 COMPOSE_SYSTEM_PROMPT = (
     "你是TCF Canada 口语题目的写作助手，请根据题目生成一份完整的法语答案。"
     "若题型为 T2，应输出自然的双人对话（考官/考生），保持角色一致。"
-    "若题型为 T3，请生成一篇适合口头陈述的议论文，包含：引言、分类讨论或正反论述（每个分论点给出适当例子），以及结论；整体难度维持 B2 左右，"
-    "正文（仅计算法语单词）需在 275~325 词之间。"
-    "所有答案需包含自然的段落结构，并保持地道表达。"
+    "若题型为 T3，请生成一篇适合口头陈述的议论文，整体难度维持 B2 左右，正文（仅计法语单词）需在 275~325 词之间。"
+    "当提供方向提示或结构建议时，请遵循该方向；如无提示，则依据题意选择最合适的立场与段落结构，并确保逻辑连贯。"
     "输出 JSON，包含 title(中文精简标题) 与 text(法语完整答案)。{format_instructions}"
 )
 
@@ -35,8 +34,23 @@ COMPOSE_HUMAN_PROMPT = (
     "题目类型: {question_type}\n"
     "题目标题: {question_title}\n"
     "题目内容: {question_body}\n"
+    "方向提示或题意分析（如有）:\n{direction_hint}\n\n"
     "考生草稿与评估反馈:\n{eval_summary}\n\n"
     "提示/草稿:\n{answer_draft}"
+)
+
+OUTLINE_SYSTEM_PROMPT = (
+    "你是TCF Canada 题意分析助手。请根据题干与用户草稿，推导出若干个可行的答题方向，"
+    "每个方向需要给出立场（如支持/反对/折中）、中文摘要，以及推荐的段落结构（引言、论点、例子、结论等）。"
+    "同时指定一个最推荐的方向。"
+    "输出 JSON，符合 recommended/alternatives 的结构定义。{format_instructions}"
+)
+
+OUTLINE_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容: {question_body}\n"
+    "考生草稿（若为空则仅基于题目分析）:\n{answer_draft}"
 )
 
 STRUCTURE_SYSTEM_PROMPT = (
@@ -107,17 +121,18 @@ CHUNK_LEXEME_HUMAN_PROMPT = (
 )
 
 COMPARATOR_SYSTEM_PROMPT = (
-    "你是 TCF Canada 口语题的评估官。收到考生最新草稿以及若干参考答案（每个代表一个答案组的最新版本），"
-    "请判断哪一个参考答案与草稿最接近，并说明差异；若草稿与所有参考答案差异都很大，应建议创建一个新的答案组。"
-    "输出 JSON，包含字段：decision(new_group/reuse)、matched_answer_group_id(若 reuse)、reason(中文说明)、differences(字符串列表)。{format_instructions}"
+    "你是 TCF Canada 口语题的评估官。收到考生最新草稿、题意方向候选以及已有答案组的方向信息，"
+    "请判断草稿最接近哪一种方向：若该方向已有答案组则返回其 ID 并输出差异；若没有匹配方向或差异极大，应建议创建新答案组并说明理由。"
+    "输出 JSON，字段：decision(new_group/reuse)、matched_answer_group_id(若 reuse)、direction_descriptor(草稿最匹配的方向)、reason(中文说明)、differences(字符串列表)。{format_instructions}"
 )
 
 COMPARATOR_HUMAN_PROMPT = (
     "题目类型: {question_type}\n"
     "题目标题: {question_title}\n"
     "题目内容: {question_body}\n"
-    "考生最新草稿:\n{answer_draft}\n\n"
-    "参考答案列表(按答案组给出最新版本)：\n{reference_answers}"
+    "题意方向候选:\n{direction_plan}\n\n"
+    "已有答案组（含方向）：\n{existing_groups}\n\n"
+    "考生最新草稿:\n{answer_draft}"
 )
 
 GAP_HIGHLIGHT_SYSTEM_PROMPT = (

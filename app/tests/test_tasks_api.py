@@ -35,6 +35,17 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
         def compose_answer(self, **kwargs):
             return {"title": "标题", "text": "内容"}
 
+        def plan_answer_direction(self, **kwargs):
+            return {
+                "recommended": {
+                    "title": "支持立场",
+                    "summary": "支持该政策并讨论两个好处",
+                    "stance": "support",
+                    "structure": ["引言", "论点1", "论点2", "结论"],
+                },
+                "alternatives": [],
+            }
+
     app.dependency_overrides[get_session] = override_get_session
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     test_client = TestClient(app)

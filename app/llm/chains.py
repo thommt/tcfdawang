@@ -25,6 +25,8 @@ from app.llm.prompts import (
     GAP_HIGHLIGHT_HUMAN_PROMPT,
     REFINE_ANSWER_SYSTEM_PROMPT,
     REFINE_ANSWER_HUMAN_PROMPT,
+    OUTLINE_SYSTEM_PROMPT,
+    OUTLINE_HUMAN_PROMPT,
 )
 from app.llm.schemas import (
     QuestionMetadataSchema,
@@ -37,6 +39,7 @@ from app.llm.schemas import (
     AnswerComparisonSchema,
     GapHighlightSchema,
     RefinedAnswerSchema,
+    AnswerOutlinePlanSchema,
 )
 
 
@@ -70,6 +73,18 @@ def build_compose_chain(llm: BaseChatModel):
         [
             ("system", COMPOSE_SYSTEM_PROMPT),
             ("human", COMPOSE_HUMAN_PROMPT),
+        ]
+    )
+    chain = prompt | llm | parser
+    return chain, parser, prompt
+
+
+def build_outline_chain(llm: BaseChatModel):
+    parser = JsonOutputParser(pydantic_object=AnswerOutlinePlanSchema)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", OUTLINE_SYSTEM_PROMPT),
+            ("human", OUTLINE_HUMAN_PROMPT),
         ]
     )
     chain = prompt | llm | parser
