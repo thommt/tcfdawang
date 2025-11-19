@@ -163,11 +163,25 @@ class TaskService:
         self.session.refresh(task)
         try:
             start = datetime.now(timezone.utc)
+            progress_state = dict(session_entity.progress_state or {})
+            last_eval = progress_state.get("last_eval") or {}
+            eval_summary = None
+            if last_eval:
+                score = last_eval.get("score")
+                feedback = last_eval.get("feedback")
+                parts = []
+                if score is not None:
+                    parts.append(f"评分: {score}")
+                if feedback:
+                    parts.append(f"反馈: {feedback}")
+                if parts:
+                    eval_summary = "；".join(parts)
             compose_result = self.llm_client.compose_answer(
                 question_type=question.type,
                 question_title=question.title,
                 question_body=question.body,
                 answer_draft=session_entity.user_answer_draft or "",
+                eval_summary=eval_summary,
             )
             prompt_messages = compose_result.pop("_prompt_messages", None)
             saved_at = datetime.now(timezone.utc)

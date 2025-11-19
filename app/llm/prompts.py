@@ -24,7 +24,10 @@ EVAL_HUMAN_PROMPT = (
 
 COMPOSE_SYSTEM_PROMPT = (
     "你是TCF Canada 口语题目的写作助手，请根据题目生成一份完整的法语答案。"
-    "答案需包含自然的段落结构，长度约为题目要求，保持地道表达。"
+    "若题型为 T2，应输出自然的双人对话（考官/考生），保持角色一致。"
+    "若题型为 T3，请生成一篇适合口头陈述的议论文，包含：引言、分类讨论或正反论述（每个分论点给出适当例子），以及结论；整体难度维持 B2 左右，"
+    "正文（仅计算法语单词）需在 275~325 词之间。"
+    "所有答案需包含自然的段落结构，并保持地道表达。"
     "输出 JSON，包含 title(中文精简标题) 与 text(法语完整答案)。{format_instructions}"
 )
 
@@ -32,6 +35,7 @@ COMPOSE_HUMAN_PROMPT = (
     "题目类型: {question_type}\n"
     "题目标题: {question_title}\n"
     "题目内容: {question_body}\n"
+    "考生草稿与评估反馈:\n{eval_summary}\n\n"
     "提示/草稿:\n{answer_draft}"
 )
 

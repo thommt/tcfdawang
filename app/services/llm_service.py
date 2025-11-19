@@ -227,12 +227,14 @@ class QuestionLLMClient:
         question_title: str,
         question_body: str,
         answer_draft: str,
+        eval_summary: str | None = None,
     ) -> dict:
         try:
             prompt_messages = self._compose_prompt.format_messages(
                 question_type=question_type,
                 question_title=question_title,
                 question_body=question_body,
+                eval_summary=eval_summary or "暂无评估反馈",
                 answer_draft=answer_draft,
                 format_instructions=self._compose_parser.get_format_instructions(),
             )

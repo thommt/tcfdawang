@@ -309,7 +309,7 @@ export default defineComponent({
         } else {
           finalizeMode.value = 'new';
           selectedGroupId.value = null;
-          newGroupTitle.value = question.value?.title ?? '新答案组';
+          newGroupTitle.value = newGroupTitle.value || question.value?.title || '新答案组';
         }
       } else if (answerGroups.value.length) {
         finalizeMode.value = 'reuse';
@@ -318,7 +318,7 @@ export default defineComponent({
       } else {
         finalizeMode.value = 'new';
         selectedGroupId.value = null;
-        newGroupTitle.value = question.value?.title ?? '新答案组';
+        newGroupTitle.value = newGroupTitle.value || question.value?.title || '新答案组';
       }
       if (!preserveAnswer) {
         answerTitle.value = question.value?.title ?? '';
@@ -362,7 +362,7 @@ export default defineComponent({
           selectedGroupId.value = answerGroups.value[0].id;
         }
       } else {
-        newGroupTitle.value = newGroupTitle.value || question.value?.title ?? '新答案组';
+        newGroupTitle.value = newGroupTitle.value || question.value?.title || '新答案组';
       }
     }
 
