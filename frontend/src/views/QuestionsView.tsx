@@ -1,5 +1,5 @@
 import { defineComponent, onMounted, ref, computed, watch } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import QuestionForm from '../components/QuestionForm';
 import { useQuestionStore } from '../stores/questions';
 import { useSessionStore } from '../stores/sessions';
@@ -23,6 +23,7 @@ export default defineComponent({
   setup() {
     const store = useQuestionStore();
     const sessionStore = useSessionStore();
+    const router = useRouter();
     const formDialog = ref<HTMLDialogElement | null>(null);
     const fetchDialog = ref<HTMLDialogElement | null>(null);
     const fetchInput = ref('');
@@ -34,6 +35,8 @@ export default defineComponent({
     const pageSizeOptions = [10, 20, 50];
     const pageSize = ref(pageSizeOptions[0]);
     const generatingId = ref<number | null>(null);
+    const defaultSessionQuestionId = ref<number | null>(null);
+    const defaultSessionError = ref('');
 
     const formModel = ref<QuestionPayload>(createEmptyForm());
 
@@ -111,6 +114,30 @@ export default defineComponent({
         if (generatingId.value === questionId) {
           generatingId.value = null;
         }
+      }
+    }
+
+    async function openDefaultSession(questionId: number) {
+      defaultSessionError.value = '';
+      defaultSessionQuestionId.value = questionId;
+      try {
+        if (!sessionStore.sessions.length) {
+          await sessionStore.loadSessions();
+        }
+        let target =
+          sessionStore
+            .sessionsByQuestion(questionId)
+            .find((session) => session.session_type === 'first' && !session.answer_id && session.status !== 'completed') ||
+          null;
+        if (!target) {
+          target = await sessionStore.createSession(questionId);
+        }
+        await router.push(`/sessions/${target.id}`);
+      } catch (error) {
+        console.error(error);
+        defaultSessionError.value = '无法进入默认学习，请稍后再试';
+      } finally {
+        defaultSessionQuestionId.value = null;
       }
     }
     const availableTags = computed(() => {
@@ -224,6 +251,7 @@ export default defineComponent({
 
         {store.loading && <div class="info">加载中...</div>}
         {store.error && <div class="error">{store.error}</div>}
+        {defaultSessionError.value && <div class="error">{defaultSessionError.value}</div>}
 
         {!store.loading && (
           <table class="question-table">
@@ -257,6 +285,12 @@ export default defineComponent({
                       <RouterLink class="link" to={`/questions/${item.id}`}>
                         详情
                       </RouterLink>
+                      <button
+                        onClick={() => openDefaultSession(item.id)}
+                        disabled={defaultSessionQuestionId.value === item.id}
+                      >
+                        {defaultSessionQuestionId.value === item.id ? '进入中...' : '默认学习'}
+                      </button>
                       <button
                         onClick={() => generateMetadata(item.id)}
                         disabled={generatingId.value === item.id}

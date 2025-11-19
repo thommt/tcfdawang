@@ -64,9 +64,9 @@ class SessionService:
         self.session.refresh(entity)
         return self._to_session_read(entity)
 
-    def delete_session(self, session_id: int) -> None:
+    def delete_session(self, session_id: int, *, force: bool = False) -> None:
         session_entity = self._get_session_entity(session_id)
-        if session_entity.answer_id:
+        if session_entity.answer_id and not force:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已关联答案的 Session 不可删除")
         tasks = self.session.exec(select(Task).where(Task.session_id == session_id)).all()
         for task in tasks:
@@ -95,6 +95,12 @@ class SessionService:
         update_data = data.model_dump(exclude_unset=True)
         if "answer_id" in update_data and update_data["answer_id"] is not None:
             self._ensure_answer_exists(update_data["answer_id"])
+        if "user_answer_draft" in update_data and entity.answer_id is None:
+            progress_state = dict(entity.progress_state or {})
+            progress_state["phase"] = "draft"
+            for key in ["last_eval", "last_compare", "last_gap_highlight", "last_refine", "last_compose"]:
+                progress_state.pop(key, None)
+            entity.progress_state = progress_state
         if data.progress_state is not None:
             entity.progress_state = data.progress_state
             update_data.pop("progress_state", None)
@@ -108,6 +114,9 @@ class SessionService:
 
     def finalize_session(self, session_id: int, payload: SessionFinalizePayload) -> SessionRead:
         session_entity = self._get_session_entity(session_id)
+        phase = (session_entity.progress_state or {}).get("phase", "draft")
+        if phase not in {"await_finalize", "await_new_group"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前阶段不可完成 Session")
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -142,6 +151,9 @@ class SessionService:
         session_entity.answer_id = answer.id
         session_entity.status = "completed"
         session_entity.completed_at = datetime.now(timezone.utc)
+        progress_state = dict(session_entity.progress_state or {})
+        progress_state["phase"] = "structure_pipeline"
+        session_entity.progress_state = progress_state
         session_entity.updated_at = datetime.now(timezone.utc)
         self.session.add(session_entity)
         self.session.commit()
@@ -204,7 +216,7 @@ class SessionService:
                 select(SessionSchema).where(SessionSchema.answer_id == answer.id)
             ).all()
             for session in sessions:
-                self.delete_session(session.id)
+                self.delete_session(session.id, force=True)
             self._delete_answer_dependencies(answer.id)
             self.session.delete(answer)
         self.session.delete(group)

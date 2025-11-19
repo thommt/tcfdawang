@@ -47,6 +47,16 @@ class TaskService:
         session_entity.updated_at = datetime.now(timezone.utc)
         self.session.add(session_entity)
 
+    def _require_phase(self, session_entity: SessionSchema, allowed_phases: set[str], action: str) -> str:
+        progress_state = session_entity.progress_state or {}
+        current = progress_state.get("phase", "draft")
+        if allowed_phases and current not in allowed_phases:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"当前阶段“{current}”不可执行 {action}",
+            )
+        return current
+
     def run_eval_task(self, session_id: int) -> TaskRead:
         session_entity = self.session.get(SessionSchema, session_id)
         if not session_entity:
@@ -54,6 +64,7 @@ class TaskService:
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        self._require_phase(session_entity, {"draft"}, "评估任务")
         task = Task(type="eval", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
         self.session.commit()
@@ -82,11 +93,12 @@ class TaskService:
                 latency_ms=latency,
             )
             self.session.add(conversation)
+            has_answers = self._question_has_answers(question.id)
             progress_state = dict(session_entity.progress_state or {})
             eval_payload = dict(eval_result)
             eval_payload["saved_at"] = saved_at.isoformat()
             progress_state["last_eval"] = eval_payload
-            progress_state["phase"] = "await_eval_confirm"
+            progress_state["phase"] = "await_eval_confirm" if has_answers else "await_new_group"
             session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
@@ -96,7 +108,7 @@ class TaskService:
             self.session.add(task)
             self.session.commit()
             self.session.refresh(task)
-            if self._question_has_answers(question.id):
+            if has_answers:
                 try:
                     self.run_answer_compare_task(session_id)
                 except HTTPException:
@@ -114,6 +126,7 @@ class TaskService:
         session_entity = self.session.get(SessionSchema, session_id)
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        self._require_phase(session_entity, {"await_finalize", "await_new_group"}, "LLM 生成答案")
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -150,7 +163,7 @@ class TaskService:
             compose_payload = dict(compose_result)
             compose_payload["saved_at"] = saved_at.isoformat()
             progress_state["last_compose"] = compose_payload
-            progress_state["phase"] = "compose_completed"
+            progress_state["phase"] = "await_finalize"
             session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
             self.session.add(session_entity)
@@ -200,6 +213,7 @@ class TaskService:
         session_entity = self.session.get(SessionSchema, session_id)
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        self._require_phase(session_entity, {"await_eval_confirm"}, "答案对比")
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -308,6 +322,7 @@ class TaskService:
         session_entity = self.session.get(SessionSchema, session_id)
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        self._require_phase(session_entity, {"gap_highlight"}, "GapHighlighter")
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -378,6 +393,7 @@ class TaskService:
         session_entity = self.session.get(SessionSchema, session_id)
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        self._require_phase(session_entity, {"refine"}, "Refine Answer")
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
@@ -436,6 +452,11 @@ class TaskService:
         return TaskRead.model_validate(task)
 
     def run_structure_pipeline_for_answer(self, answer_id: int, session_id: int | None = None) -> None:
+        if session_id:
+            session_entity = self.session.get(SessionSchema, session_id)
+            if session_entity:
+                self._set_session_phase(session_entity, "structure_pipeline")
+                self.session.commit()
         try:
             self.run_structure_task_for_answer(answer_id)
         except HTTPException:

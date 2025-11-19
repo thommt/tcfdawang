@@ -1,5 +1,5 @@
 import { defineComponent, onMounted, ref, computed } from 'vue';
-import { useRoute, RouterLink } from 'vue-router';
+import { useRoute, RouterLink, useRouter } from 'vue-router';
 import { useQuestionStore } from '../stores/questions';
 import { useSessionStore } from '../stores/sessions';
 import type { Question } from '../types/question';
@@ -12,6 +12,7 @@ export default defineComponent({
   setup() {
     const route = useRoute();
     const questionId = Number(route.params.id);
+    const router = useRouter();
     const questionStore = useQuestionStore();
     const sessionStore = useSessionStore();
     const question = ref<Question | null>(null);
@@ -23,6 +24,8 @@ export default defineComponent({
     const groupError = ref('');
     const deletingSessionId = ref<number | null>(null);
     const sessionError = ref('');
+    const defaultSessionLoading = ref(false);
+    const defaultSessionError = ref('');
 
     const relatedSessions = computed(() => sessionStore.sessionsByQuestion(questionId));
     const answerIdToGroupId = computed(() => {
@@ -109,6 +112,30 @@ export default defineComponent({
       }
     }
 
+    async function enterDefaultSession() {
+      defaultSessionError.value = '';
+      defaultSessionLoading.value = true;
+      try {
+        if (!sessionStore.sessions.length) {
+          await sessionStore.loadSessions();
+        }
+        let target =
+          sessionStore
+            .sessionsByQuestion(questionId)
+            .find((session) => session.session_type === 'first' && !session.answer_id && session.status !== 'completed') ||
+          null;
+        if (!target) {
+          target = await sessionStore.createSession(questionId);
+        }
+        await router.push(`/sessions/${target.id}`);
+      } catch (err) {
+        console.error(err);
+        defaultSessionError.value = '无法进入默认学习';
+      } finally {
+        defaultSessionLoading.value = false;
+      }
+    }
+
     onMounted(() => {
       loadQuestion();
     });
@@ -138,6 +165,12 @@ export default defineComponent({
               <strong>标签：</strong>
               {question.value.tags.join(', ') || '暂无'}
             </p>
+            <div class="question-actions">
+              <button type="button" onClick={enterDefaultSession} disabled={defaultSessionLoading.value}>
+                {defaultSessionLoading.value ? '进入中...' : '默认学习'}
+              </button>
+            </div>
+            {defaultSessionError.value && <p class="error">{defaultSessionError.value}</p>}
           </div>
         )}
 
@@ -170,7 +203,7 @@ export default defineComponent({
                       </td>
                       <td>
                         <RouterLink to={`/sessions/${session.id}`}>进入</RouterLink>
-                        {!session.answer_id && session.status !== 'completed' && (
+                        {!session.answer_id && (
                           <button
                             type="button"
                             onClick={() => handleDeleteSession(session.id)}

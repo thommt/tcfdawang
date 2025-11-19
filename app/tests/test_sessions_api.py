@@ -16,6 +16,7 @@ from app.db.schemas import (
     Lexeme,
     ChunkLexeme,
     FlashcardProgress,
+    Session as SessionSchema,
 )
 
 
@@ -216,6 +217,8 @@ def test_run_compose_task(client: TestClient) -> None:
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     question_id = _create_question(client)
     session_resp = client.post("/sessions", json={"question_id": question_id}).json()
+    eval_resp = client.post(f"/sessions/{session_resp['id']}/tasks/eval")
+    assert eval_resp.status_code == 201
     task_resp = client.post(f"/sessions/{session_resp['id']}/tasks/compose")
     assert task_resp.status_code == 201
     data = task_resp.json()
@@ -228,7 +231,7 @@ def test_run_compose_task(client: TestClient) -> None:
     assert "saved_at" in last_compose
 
 
-def test_compare_task(client: TestClient) -> None:
+def test_compare_task(client: TestClient, session: Session) -> None:
     question_id = _create_question(client)
     group_resp = client.post(
         "/answer-groups",
@@ -247,6 +250,12 @@ def test_compare_task(client: TestClient) -> None:
         json={"question_id": question_id, "user_answer_draft": "Je pense que..."},
     )
     session_id = session_resp.json()["id"]
+    db_session = session
+    db_entity = db_session.exec(select(SessionSchema).where(SessionSchema.id == session_id)).first()
+    assert db_entity is not None
+    db_entity.progress_state = {"phase": "await_eval_confirm"}
+    db_session.add(db_entity)
+    db_session.commit()
     task_resp = client.post(f"/sessions/{session_id}/tasks/compare")
     assert task_resp.status_code == 201
     task = task_resp.json()
@@ -257,18 +266,39 @@ def test_compare_task(client: TestClient) -> None:
     assert "saved_at" in summary
 
 
-def test_gap_highlight_and_refine(client: TestClient) -> None:
+def test_gap_highlight_and_refine(client: TestClient, session: Session) -> None:
     question_id = _create_question(client)
+    group_resp = client.post("/answer-groups", json={"question_id": question_id, "title": "Group"}).json()
+    client.post(
+        "/answers",
+        json={
+            "answer_group_id": group_resp["id"],
+            "title": "答案示例",
+            "text": "Texte existant",
+        },
+    )
     session_resp = client.post(
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Je pense que..."},
     )
     session_id = session_resp.json()["id"]
+    db_entity = session.exec(select(SessionSchema).where(SessionSchema.id == session_id)).first()
+    assert db_entity is not None
+    db_entity.progress_state = {"phase": "gap_highlight"}
+    session.add(db_entity)
+    session.commit()
     highlight_resp = client.post(f"/sessions/{session_id}/tasks/gap-highlight")
     assert highlight_resp.status_code == 201
     highlight = highlight_resp.json()
     assert highlight["type"] == "gap_highlight"
     assert highlight["result_summary"]["coverage_score"] == 0.5
+    db_entity = session.exec(select(SessionSchema).where(SessionSchema.id == session_id)).first()
+    assert db_entity is not None
+    progress_state = dict(db_entity.progress_state or {})
+    progress_state["phase"] = "refine"
+    db_entity.progress_state = progress_state
+    session.add(db_entity)
+    session.commit()
     refine_resp = client.post(f"/sessions/{session_id}/tasks/refine")
     assert refine_resp.status_code == 201
     refine = refine_resp.json()
@@ -282,6 +312,8 @@ def test_finalize_session_creates_answer(client: TestClient, session: Session) -
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Bonjour"},
     ).json()
+    eval_resp = client.post(f"/sessions/{session_resp['id']}/tasks/eval")
+    assert eval_resp.status_code == 201
     finalize_payload = {
         "group_title": "家庭题",
         "answer_title": "答案版本1",
@@ -297,6 +329,8 @@ def test_finalize_session_creates_answer(client: TestClient, session: Session) -
     assert len(answers) == 1
 
     second_session = client.post("/sessions", json={"question_id": question_id}).json()
+    eval_resp_2 = client.post(f"/sessions/{second_session['id']}/tasks/eval")
+    assert eval_resp_2.status_code == 201
     reuse_payload = {
         "answer_group_id": groups[0].id,
         "answer_title": "答案版本2",
@@ -369,6 +403,8 @@ def test_create_review_session(client: TestClient, session: Session) -> None:
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Bonjour"},
     ).json()
+    eval_resp = client.post(f"/sessions/{session_resp['id']}/tasks/eval")
+    assert eval_resp.status_code == 201
     finalize_payload = {
         "group_title": "复习题",
         "answer_title": "首版答案",
@@ -485,8 +521,7 @@ def test_delete_answer_group_cascades(client: TestClient, session: Session) -> N
         ).all()
         == []
     )
-    updated_session = client.get(f"/sessions/{review_session['id']}").json()
-    assert updated_session["answer_id"] is None
+    assert client.get(f"/sessions/{review_session['id']}").status_code == 404
 
 
 def test_delete_single_answer(client: TestClient, session: Session) -> None:
@@ -596,6 +631,8 @@ def test_delete_session_disallowed_when_answer_exists(client: TestClient) -> Non
         "/sessions",
         json={"question_id": question_id, "user_answer_draft": "Texte"},
     ).json()
+    eval_resp = client.post(f"/sessions/{session_resp['id']}/tasks/eval")
+    assert eval_resp.status_code == 201
     finalize_payload = {
         "group_title": "测试",
         "answer_title": "答案",
