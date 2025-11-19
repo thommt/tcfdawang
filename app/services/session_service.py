@@ -101,10 +101,12 @@ class SessionService:
             progress_state = dict(entity.progress_state or {})
             progress_state["phase"] = "draft"
             progress_state["phase_status"] = "idle"
-            for key in ["last_eval", "last_compare", "last_gap_highlight", "last_refine", "last_compose"]:
+            for key in ["last_eval", "last_compare", "last_compose"]:
                 progress_state.pop(key, None)
             progress_state.pop("phase_error", None)
             entity.progress_state = progress_state
+            entity.status = self._status_from_phase("draft")
+            entity.completed_at = None
         if data.progress_state is not None:
             entity.progress_state = data.progress_state
             update_data.pop("progress_state", None)
@@ -160,12 +162,12 @@ class SessionService:
         self.session.commit()
         self.session.refresh(answer)
         session_entity.answer_id = answer.id
-        session_entity.status = "completed"
-        session_entity.completed_at = datetime.now(timezone.utc)
         progress_state = dict(session_entity.progress_state or {})
         progress_state["phase"] = "structure_pipeline"
         progress_state["phase_status"] = "running"
         session_entity.progress_state = progress_state
+        session_entity.status = self._status_from_phase("structure_pipeline")
+        session_entity.completed_at = None
         session_entity.updated_at = datetime.now(timezone.utc)
         self.session.add(session_entity)
         self.session.commit()
@@ -182,7 +184,7 @@ class SessionService:
         progress["phase"] = "completed"
         progress["phase_status"] = "idle"
         session.progress_state = progress
-        session.status = "completed"
+        session.status = self._status_from_phase("completed")
         session.completed_at = datetime.now(timezone.utc)
         session.updated_at = datetime.now(timezone.utc)
         self.session.add(session)
@@ -470,6 +472,13 @@ class SessionService:
         ).all()
         for row in rows:
             self.session.delete(row)
+
+    def _status_from_phase(self, phase: str | None) -> str:
+        if not phase or phase == "draft":
+            return "draft"
+        if phase == "completed":
+            return "completed"
+        return "in_progress"
 
     def _get_session_entity(self, session_id: int) -> SessionSchema:
         entity = self.session.get(SessionSchema, session_id)

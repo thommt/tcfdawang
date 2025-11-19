@@ -55,6 +55,12 @@ class TaskService:
         progress_state = dict(session_entity.progress_state or {})
         if phase is not None:
             progress_state["phase"] = phase
+            new_status = self._status_from_phase(phase)
+            session_entity.status = new_status
+            if new_status != "completed":
+                session_entity.completed_at = None
+            elif session_entity.completed_at is None:
+                session_entity.completed_at = datetime.now(timezone.utc)
         if status is not None:
             progress_state["phase_status"] = status
         if clear_error:
@@ -438,11 +444,8 @@ class TaskService:
                 latency_ms=latency,
             )
             self.session.add(conversation)
-            progress_state = dict(session_entity.progress_state or {})
             payload = dict(highlight)
             payload["saved_at"] = saved_at.isoformat()
-            progress_state["last_gap_highlight"] = payload
-            session_entity.progress_state = progress_state
             self._set_phase_state(session_entity, phase="refine", status="idle", clear_error=True)
             task.status = "succeeded"
             task.result_summary = payload
@@ -451,7 +454,7 @@ class TaskService:
             self.session.commit()
             self.session.refresh(task)
             try:
-                self.run_refine_answer_task(session_id)
+                self.run_refine_answer_task(session_id, gap_notes=payload)
             except HTTPException:
                 pass
         except LLMError as exc:
@@ -465,7 +468,7 @@ class TaskService:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return TaskRead.model_validate(task)
 
-    def run_refine_answer_task(self, session_id: int) -> TaskRead:
+    def run_refine_answer_task(self, session_id: int, gap_notes: dict | None = None) -> TaskRead:
         session_entity = self.session.get(SessionSchema, session_id)
         if not session_entity:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
@@ -474,7 +477,8 @@ class TaskService:
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
-        gap_notes = session_entity.progress_state.get("last_gap_highlight") if session_entity.progress_state else None
+        if gap_notes is None:
+            gap_notes = self._get_latest_task_summary(session_id, "gap_highlight")
         task = Task(type="refine_answer", status="pending", payload={"session_id": session_id}, session_id=session_id)
         self.session.add(task)
         self.session.commit()
@@ -505,11 +509,8 @@ class TaskService:
                 latency_ms=latency,
             )
             self.session.add(conversation)
-            progress_state = dict(session_entity.progress_state or {})
             payload = dict(refined)
             payload["saved_at"] = saved_at.isoformat()
-            progress_state["last_refine"] = payload
-            session_entity.progress_state = progress_state
             self._set_phase_state(session_entity, phase="await_finalize", status="idle", clear_error=True)
             task.status = "succeeded"
             task.result_summary = payload
@@ -726,6 +727,13 @@ class TaskService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
         return task
 
+    def _status_from_phase(self, phase: str) -> str:
+        if phase == "completed":
+            return "completed"
+        if phase == "draft":
+            return "draft"
+        return "in_progress"
+
     def _get_question_direction_plan(self, question: Question | None) -> dict | None:
         if not question:
             return None
@@ -797,6 +805,19 @@ class TaskService:
         if plan:
             return self._format_outline_plan(plan)
         return "尚未指定方向，可结合题意自行确定。"
+
+    def _get_latest_task_summary(self, session_id: int, task_type: str) -> dict | None:
+        statement = (
+            select(Task)
+            .where(Task.session_id == session_id)
+            .where(Task.type == task_type)
+            .where(Task.status == "succeeded")
+            .order_by(Task.created_at.desc())
+        )
+        latest = self.session.exec(statement).first()
+        if not latest or not latest.result_summary:
+            return None
+        return dict(latest.result_summary)
 
     def run_structure_task_for_answer(self, answer_id: int) -> TaskRead:
         answer = self.session.get(AnswerSchema, answer_id)

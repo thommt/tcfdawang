@@ -103,6 +103,9 @@ class QuestionService:
                 question_body=question.body,
                 answer_draft="",
             )
+            if isinstance(direction_plan, dict):
+                direction_plan = dict(direction_plan)
+                direction_plan.pop("_prompt_messages", None)
         except LLMError:
             direction_plan = question.direction_plan or {}
         question.title = metadata.title

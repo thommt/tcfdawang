@@ -322,7 +322,7 @@ def test_finalize_session_creates_answer(client: TestClient, session: Session) -
     finalize_resp = client.post(f"/sessions/{session_resp['id']}/finalize", json=finalize_payload)
     assert finalize_resp.status_code == 200
     data = finalize_resp.json()
-    assert data["status"] == "completed"
+    assert data["status"] == "in_progress"
     groups = session.exec(select(AnswerGroup)).all()
     assert len(groups) == 1
     answers = session.exec(select(Answer)).all()
