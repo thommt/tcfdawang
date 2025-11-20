@@ -17,6 +17,7 @@ export interface AnswerGroup {
   slug?: string | null;
   title: string;
   descriptor?: string | null;
+  direction_descriptor?: string | null;
   dialogue_profile?: Record<string, unknown>;
   created_at: string;
   answers: Answer[];

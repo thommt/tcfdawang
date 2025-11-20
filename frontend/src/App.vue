@@ -5,6 +5,7 @@
       <nav>
         <RouterLink to="/questions">题库</RouterLink>
         <RouterLink to="/tasks">任务</RouterLink>
+        <RouterLink to="/flashcards">抽认卡</RouterLink>
       </nav>
     </header>
     <main>
@@ -27,6 +28,12 @@
   background: #1f2933;
   color: #fff;
   padding: 1rem;
+}
+
+.app-header nav {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
 }
 
 main {

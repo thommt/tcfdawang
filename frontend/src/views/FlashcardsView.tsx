@@ -40,6 +40,7 @@ export default defineComponent({
     const promptLanguage = ref<PromptLanguage>('zh');
     const userAnswer = ref('');
     const showAnswer = ref(false);
+    const showSentenceDetails = ref(false);
 
     const currentCard = computed(() => cards.value[currentIndex.value] ?? null);
     const cardCount = computed(() => cards.value.length);
@@ -183,6 +184,7 @@ export default defineComponent({
     function confirmReveal() {
       if (!currentCard.value) return;
       showAnswer.value = true;
+      showSentenceDetails.value = false;
     }
 
     function renderSentenceCard() {
@@ -192,9 +194,16 @@ export default defineComponent({
       return (
         <div class="card-section">
           <h3>句子卡片</h3>
-          <p class="card__text">{sentence.text}</p>
-          <p class="card__translation">英文：{sentence.translation_en ?? '—'}</p>
-          <p class="card__translation">中文：{sentence.translation_zh ?? '—'}</p>
+          <button type="button" class="toggle-btn" onClick={() => (showSentenceDetails.value = !showSentenceDetails.value)}>
+            {showSentenceDetails.value ? '隐藏句子' : '查看句子'}
+          </button>
+          {showSentenceDetails.value && (
+            <>
+              <p class="card__text">{sentence.text}</p>
+              <p class="card__translation">英文：{sentence.translation_en ?? '—'}</p>
+              <p class="card__translation">中文：{sentence.translation_zh ?? '—'}</p>
+            </>
+          )}
           <p class="card__meta">
             难度：{sentence.difficulty ?? '未标注'} · 段落 #{sentence.paragraph_id}
             {sentence.answer_id && (
@@ -250,7 +259,10 @@ export default defineComponent({
             {sentence && (
               <>
                 {' · '}
-                来源句子：{sentence.text}
+                <button type="button" class="toggle-btn" onClick={() => (showSentenceDetails.value = !showSentenceDetails.value)}>
+                  {showSentenceDetails.value ? '隐藏来源句子' : '查看来源句子'}
+                </button>
+                {showSentenceDetails.value && <span>来源句子：{sentence.text}</span>}
                 {sentence.answer_id && (
                   <>
                     {' · '}
@@ -290,6 +302,7 @@ export default defineComponent({
       () => {
         userAnswer.value = '';
         showAnswer.value = false;
+        showSentenceDetails.value = false;
       },
       { immediate: true }
     );
@@ -382,14 +395,14 @@ export default defineComponent({
                 ))}
               </div>
               <p class="prompt__text">{promptText.value}</p>
-              <textarea
+              <input
                 class="prompt__input"
+                type="text"
                 placeholder="请输入对应的法语表达..."
                 value={userAnswer.value}
                 onInput={(event) => {
-                  userAnswer.value = (event.target as HTMLTextAreaElement).value;
+                  userAnswer.value = (event.target as HTMLInputElement).value;
                 }}
-                rows={3}
                 disabled={showAnswer.value}
               />
               {!showAnswer.value && (

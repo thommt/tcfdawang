@@ -58,6 +58,27 @@ export default defineComponent({
       const raw = session.value?.progress_state?.phase_status as string | undefined;
       return raw || 'idle';
     });
+
+    const currentDirection = computed(() => {
+      const raw = session.value?.progress_state?.selected_direction_descriptor as string | undefined;
+      if (raw && raw.trim().length > 0) {
+        return raw.trim();
+      }
+      const recommended = question.value?.direction_plan?.recommended?.title;
+      return recommended && recommended.trim().length > 0 ? recommended.trim() : undefined;
+    });
+
+    const buildTitleWithDirection = (base: string, direction?: string) => {
+      const trimmedDirection = direction?.trim();
+      const normalizedBase = base || '';
+      if (!trimmedDirection) {
+        return normalizedBase;
+      }
+      if (normalizedBase.includes(trimmedDirection)) {
+        return normalizedBase;
+      }
+      return normalizedBase ? `${normalizedBase}（${trimmedDirection}）` : trimmedDirection;
+    };
     const phaseError = computed(() => session.value?.progress_state?.phase_error as string | undefined);
     const phaseIsRunning = computed(() => phaseStatus.value === 'running');
     const phaseIsFailed = computed(() => phaseStatus.value === 'failed');
@@ -279,7 +300,9 @@ export default defineComponent({
       try {
         const task = await sessionStore.composeAnswer(session.value.id);
         const summary = task.result_summary as Record<string, string>;
-        answerTitle.value = summary?.title ?? question.value?.title ?? '';
+        answerTitle.value =
+          summary?.title ??
+          buildTitleWithDirection(question.value?.title ?? '最终答案', currentDirection.value);
         answerText.value = summary?.text ?? draft.value;
         await openFinalize(true);
       } finally {
@@ -296,7 +319,10 @@ export default defineComponent({
       if (compare?.decision === 'new_group') {
         finalizeMode.value = 'new';
         selectedGroupId.value = null;
-        newGroupTitle.value = question.value?.title ?? '新答案组';
+        newGroupTitle.value = buildTitleWithDirection(
+          question.value?.title ?? '新答案组',
+          currentDirection.value
+        );
       } else if (compare?.decision === 'reuse' && compare.matchedGroupId) {
         const exists = answerGroups.value.find((group) => group.id === compare.matchedGroupId);
         finalizeMode.value = 'reuse';
@@ -309,7 +335,9 @@ export default defineComponent({
         } else {
           finalizeMode.value = 'new';
           selectedGroupId.value = null;
-          newGroupTitle.value = newGroupTitle.value || question.value?.title || '新答案组';
+          newGroupTitle.value =
+            newGroupTitle.value ||
+            buildTitleWithDirection(question.value?.title ?? '新答案组', currentDirection.value);
         }
       } else if (answerGroups.value.length) {
         finalizeMode.value = 'reuse';
@@ -318,10 +346,15 @@ export default defineComponent({
       } else {
         finalizeMode.value = 'new';
         selectedGroupId.value = null;
-        newGroupTitle.value = newGroupTitle.value || question.value?.title || '新答案组';
+        newGroupTitle.value =
+          newGroupTitle.value ||
+          buildTitleWithDirection(question.value?.title ?? '新答案组', currentDirection.value);
       }
       if (!preserveAnswer) {
-        answerTitle.value = question.value?.title ?? '';
+        answerTitle.value = buildTitleWithDirection(
+          question.value?.title ?? '最终答案',
+          currentDirection.value
+        );
         answerText.value = draft.value;
       }
       showFinalize.value = true;
@@ -338,7 +371,15 @@ export default defineComponent({
         if (finalizeMode.value === 'reuse' && selectedGroupId.value) {
           payload.answer_group_id = selectedGroupId.value;
         } else {
-          payload.group_title = newGroupTitle.value || question.value?.title || '新答案组';
+          payload.group_title =
+            newGroupTitle.value ||
+            buildTitleWithDirection(question.value?.title ?? '新答案组', currentDirection.value);
+        }
+        if (!payload.answer_title) {
+          payload.answer_title = buildTitleWithDirection(
+            question.value?.title ?? '最终答案',
+            currentDirection.value
+          );
         }
         await sessionStore.finalizeSession(session.value.id, payload);
         if (question.value) {
@@ -362,7 +403,9 @@ export default defineComponent({
           selectedGroupId.value = answerGroups.value[0].id;
         }
       } else {
-        newGroupTitle.value = newGroupTitle.value || question.value?.title || '新答案组';
+        newGroupTitle.value =
+          newGroupTitle.value ||
+          buildTitleWithDirection(question.value?.title ?? '新答案组', currentDirection.value);
       }
     }
 

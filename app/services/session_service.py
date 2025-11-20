@@ -134,7 +134,7 @@ class SessionService:
             if not group:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer group not found")
         else:
-            title = payload.group_title or question.title
+            title = payload.group_title or self._title_with_direction(question.title, progress_state.get("selected_direction_descriptor"))
             group = AnswerGroupSchema(
                 question_id=question.id,
                 title=title,
@@ -154,11 +154,14 @@ class SessionService:
             self.session.refresh(group)
 
         version_index = self._next_version_index(group.id)
+        answer_title = payload.answer_title or self._title_with_direction(
+            question.title, progress_state.get("selected_direction_descriptor")
+        )
         answer = AnswerSchema(
             answer_group_id=group.id,
             version_index=version_index,
             status="active",
-            title=payload.answer_title,
+            title=answer_title,
             text=payload.answer_text,
         )
         self.session.add(answer)
@@ -405,6 +408,15 @@ class SessionService:
     def _ensure_answer_exists(self, answer_id: int) -> None:
         if not self.session.get(AnswerSchema, answer_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer not found")
+
+    def _title_with_direction(self, base: str | None, direction: str | None) -> str:
+        base_title = (base or "新答案组").strip()
+        trimmed_direction = (direction or "").strip()
+        if not trimmed_direction:
+            return base_title
+        if trimmed_direction in base_title:
+            return base_title
+        return f"{base_title}（{trimmed_direction}）"
 
     def _delete_answer_dependencies(self, answer_id: int | None) -> None:
         if not answer_id:

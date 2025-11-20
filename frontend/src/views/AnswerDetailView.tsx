@@ -322,7 +322,14 @@ export default defineComponent({
           <div class="question-card">
             <h2>{question.value.title}</h2>
             <p>
-              {question.value.year}/{question.value.month} · {question.value.type}
+              <strong>题型：</strong>
+              {question.value.type}
+              <strong style="margin-left: 1rem;">时间：</strong>
+              {question.value.year}/{question.value.month}
+            </p>
+            <p>
+              <strong>Slug：</strong>
+              {question.value.slug ?? '未生成'}
             </p>
           </div>
         )}
@@ -335,6 +342,11 @@ export default defineComponent({
             {group.value.descriptor && (
               <p>
                 主题/描述：<em>{group.value.descriptor}</em>
+              </p>
+            )}
+            {group.value.direction_descriptor && (
+              <p>
+                方向：<em>{group.value.direction_descriptor}</em>
               </p>
             )}
             {group.value.dialogue_profile && Object.keys(group.value.dialogue_profile).length > 0 && (
