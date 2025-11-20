@@ -335,16 +335,19 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 
 以下能力仍在规划阶段，当前代码尚未覆盖：
 
-1. **CSV 导入**：补齐 `/questions/import` API 及前端上传界面，支持基于 `(source, year, month, suite, number)` 的批量导入/更新。
-2. **篇章语义图**：在结构拆解时生成 `semantic_label`/角色信息，并按 spec 要求构造句子关系图。
-3. **T2 对话模式**：落实问答对结构、考官/考生人设，以及“按问答对”的抽认卡练习方式。
-4. **收藏/播放列表**：实现 Favorite/Collection 模型，允许针对自定义列表启动 guided/manual 训练。
-5. **实时任务推送**：引入 WebSocket 或 Server-Sent Events，让 Session/Task 进度实时更新，减少前端轮询。
-6. **定制化学习模式**  
+1. **CSV 导入**：补齐 `/questions/import` API 及前端上传界面，支持基于 `(type, source, year, month, suite, number)` 的批量导入/更新。
+2. **T2 对话结构升级**：引入 DialogueTurn 或专用 JSON 结构，区分开篇 / 多轮问答 / 结尾，使 T2 在数据库与学习流程中拥有独立的数据模型和抽认卡视图。
+3. **LLM 任务合并**：将结构+翻译、chunk+lexeme 等流水线步骤合并为一到两次“大 JSON”输出，减少串行任务与失败链条，同时保留必要的重试入口。
+4. **复习判定简化**：弱化自动新建答案组的逻辑，GapHighlighter/Refine 融合反馈到生成结果中，让用户手动决定是“i+1 版本”还是“另存新组”。
+5. **抽认卡策略调整**：为 Guided 模式提供“严格掌握 vs. 按 SRS 延期”开关，兼容更灵活的记忆计划；同时保留 Manual/SRS 逻辑。
+6. **收藏/播放列表**：实现 Favorite/Collection 模型，允许针对自定义列表启动 guided/manual 训练与播放功能。
+7. **实时任务推送**：引入 WebSocket 或 Server-Sent Events，让 Session/Task 进度实时更新，减少前端轮询。
+8. **定制化学习模式**  
    - 强化 Spaced Repetition：在现有简化算法基础上接入真正的 SRS（SM-2/FSRS），跨 Session 追踪每张卡的 due_at/streak。  
    - 收藏专练：允许用户基于收藏的句子/Chunk/Lexeme 启动一次专练，与默认 Session 流程解耦。  
    - 答案单独专练：提供“仅复习某个答案版本”入口，仅在该答案范围内执行 Guided/Manual 练习。  
    - Answer 复写自测：针对某个答案版本发起 mini-session（类型记为 `custom`），用户输入草稿，LLM 与该版本对比并反馈差异，但不生成新 Answer/AnswerGroup，也不触发抽认卡。
+9. **TTS 策略**：默认使用浏览器本地 TTS 或按需生成音频，避免提前生成大量 MP3；仅当用户请求高质量朗读时，才调用云端 TTS 并缓存。
 
 ---
 
