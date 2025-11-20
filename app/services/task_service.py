@@ -1201,37 +1201,24 @@ class TaskService:
                 self.session.add(chunk_lexeme)
                 created += 1
             missing_chunks = [idx for idx, count in per_chunk_counter.items() if count == 0]
+            warning_issues: list[str] | None = None
             if missing_chunks:
-                issues = [f"Chunk {idx} 未生成关键词" for idx in missing_chunks]
+                warning_issues = [f"Chunk {idx} 未生成关键词" for idx in missing_chunks]
                 sentence_extra = dict(sentence.extra or {})
-                sentence_extra["lexeme_issues"] = issues
+                sentence_extra["lexeme_issues"] = warning_issues
                 sentence.extra = sentence_extra
-                self.session.add(sentence)
-                self.session.commit()
-                conversation = LLMConversation(
-                    session_id=None,
-                    task_id=task.id,
-                    purpose="chunk_lexeme",
-                    messages={
-                        "lexeme_prompt": prompt_messages,
-                        "input_sentence": sentence.text,
-                    },
-                    result={"lexemes": lexeme_items, "error": "Lexeme 质检失败", "issues": issues},
-                    model_name=getattr(self.llm_client, "model", None),
-                    latency_ms=None,
-                )
-                self.session.add(conversation)
-                self.session.commit()
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="部分 Chunk 未生成关键词；" + "；".join(issues))
+            else:
+                sentence_extra = dict(sentence.extra or {})
+                sentence_extra.pop("lexeme_issues", None)
+                sentence.extra = sentence_extra
+            self.session.add(sentence)
             self.session.commit()
             self._cleanup_orphan_lexemes(orphan_candidates)
             for lexeme_id in lexeme_ids_for_cards:
                 self._ensure_lexeme_flashcard(lexeme_id)
-            sentence_extra = dict(sentence.extra or {})
-            sentence_extra.pop("lexeme_issues", None)
-            sentence.extra = sentence_extra
-            self.session.add(sentence)
-            self.session.commit()
+            conversation_result = dict(lexeme_result)
+            if warning_issues:
+                conversation_result["warnings"] = warning_issues
             conversation = LLMConversation(
                 session_id=None,
                 task_id=task.id,
@@ -1240,13 +1227,16 @@ class TaskService:
                     "lexeme_prompt": prompt_messages,
                     "input_sentence": sentence.text,
                 },
-                result=lexeme_result,
+                result=conversation_result,
                 model_name=getattr(self.llm_client, "model", None),
                 latency_ms=None,
             )
             self.session.add(conversation)
             task.status = "succeeded"
-            task.result_summary = {"created": created}
+            payload = {"created": created}
+            if warning_issues:
+                payload["issues"] = warning_issues
+            task.result_summary = payload
             task.updated_at = datetime.now(timezone.utc)
             task.error_message = None
             self.session.add(task)
