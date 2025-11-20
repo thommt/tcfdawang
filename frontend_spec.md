@@ -93,7 +93,6 @@
 - **Chunk & Lexeme 列表**：
   - 每个 chunk 展示原文 + EN/ZH 翻译 + chunk_type，嵌套对应 Lexeme（headword、翻译、sense）。
   - Lexeme 条目提供“查看详情”跳转 `/lexemes?id=xxx`。
-- **图结构视图**（可选）：若已生成 graph，使用力导图或流程图展示；若未生成，显示按钮触发 `POST /answers/{id}/structure-graph`。
 - **LLM 日志入口**：展示最近的 chunk/lexeme 任务记录，提供链接跳转 `/llm-conversations`。
 
 ## 8. 抽认卡与定制学习（`/flashcards` + 专练入口）

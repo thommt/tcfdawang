@@ -67,13 +67,10 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 | `LLMConversation` | id、session_id、task_id、purpose(eval/structure/compare/phrase_split等)、messages(json TEXT/JSONB)、result(json TEXT/JSONB)、model_name、latency_ms |
 
 > **LLMConversation 存储**：`messages` 与 `result` 字段需使用大容量类型（SQLite TEXT / PostgreSQL JSONB）以容纳完整对话记录；必要时可启用压缩或归档策略，确保长对话不会截断。`Task` 只记录执行状态与 `conversation_id` 引用，具体 prompt/response 由 `LLMConversation` 保存。
-| `ParagraphGraphNode` | id、answer_id、paragraph_id、label、metadata(json) |
-| `ParagraphGraphEdge` | id、answer_id、from_node_id、to_node_id、relation(enum: support/contrast/example/summary/follow_up/clarification/contain/expand)、metadata(json，可存权重/注释) |
 | `FlashcardProgress` | id、entity_type(sentence/chunk/lexeme)、entity_id、last_score、due_at、streak、interval_days |
 | `Favorite` | id、entity_type(answer/paragraph/sentence/lexeme)、entity_id、note、created_at |
 | `QuestionTag` | id、question_id、tag |
 
-> **图结构设计**：段落拆解后，可选地调用结构关系分析任务，生成节点列表（指向 Paragraph）以及边关系（支持 support/contrast/example 等语义）。若用户未触发该分析，则不生成图数据，默认仅使用段落顺序。后续学习场景中可根据 Graph 数据做篇章对比或可视化。
 
 > **答案分组说明**：`descriptor` 字段用来概括答案的主旨或主题——对于需要表态的问题，可取值如 `support`/`oppose`；对于开放题（例如“最喜欢的科目是什么”），则可用 `math`、`physics` 等描述内容的标签。若题目存在多个主旨/结构完全不同的回答，就分别建立 `AnswerGroup(descriptor=…)`。T2 对话还可利用 `dialogue_profile`（例如 `examiner_attitude=stern`、`detail_level=concise`、`user_persona` 来源于全局设置）区分“同主题但不同考官态度/语体/人设”的答案组。
 
@@ -100,7 +97,6 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 5. LangChain 流程分阶段、异步执行（每个阶段对应一个 `Task`）：
    - **AnswerComposer**（task type=`compose_answer`）：根据题型、风格、难度要求生成自然连贯的法语文本（确保满足词汇/语法/篇章框架约束；T2 需生成考官/考生对话，结合全局 `user_profile` 与临时设定，生成自然的提问、评论、追问，并遵守 `dialogue_profile` 的态度、详尽度、语体设置），输出最终 `Answer.text`。
    - **StructureExtractor**（`structure`）：在 `Answer` 固化后，再独立调用 LLM 拆解段落→句子→关系，返回 JSON（包括排序、角色、关系，T2 需识别追问链路、角色以及“问/答/追问/评论”类型）。
-   - `GraphBuilder`（`structure_graph`，可选）：从结构 JSON 解析节点与边，写入图表。仅在用户主动触发“篇章图分析”或题目设置要求时运行；默认可跳过，仅保留段落顺序。
    - `SentenceTranslator`（`translate`）：为每个句子生成中英翻译。
    - **ChunkExtractor**（`chunk_sentence`）：对选定句子调用 LLM，将句子拆成若干个 `SentenceChunk`（含原文与中英翻译），并进行质检（覆盖度、语法完整性）。Chunk 记录直接与句子关联，可多次重试。
    - **LexemeExtractor**（`lexeme_from_chunks`）：以 chunk 输出为输入，调用 LLM 为每个 chunk 提取 1~N 个关键词/中心词，生成 `Lexeme` 并通过 `ChunkLexeme` 关联。词性/难度需匹配约定枚举；若命中已有 lexeme 则复用。
@@ -160,7 +156,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 1. **固定架构**：每个 T2 答案版本包含：开篇（引导/问候）、若干问答对（`QuestionPrompt` + `Response` + 可选追问/评论）、结尾（告别/总结）。需在 `Paragraph` 中标注 `section_type`/`semantic_label` 以区分这些固定块，并记录对应的角色（考官/考生）、追问层级等信息。
 2. **学习流程调整**：
    - 在首次与复习阶段，LLM 反馈需遵守对话脚本格式，确保每次迭代都包含完整的问答对。
-   - 结构拆解时，`Paragraph` 需映射至开篇、问答对、结尾等角色；句子关系图可简化为按对话顺序的链式结构，并附加“follow-up”“clarification”等关系，通过 `semantic_label`/metadata 表示具体语块，追踪追问链路。
+   - 结构拆解时，`Paragraph` 需映射至开篇、问答对、结尾等角色；通过 `semantic_label`/metadata 表示“follow-up”“clarification”等追问关系，追踪追问链路，无需额外的图结构。
    - 抽认卡训练支持“按问答对”模式：先提示对方提问，再要求用户复述回答；必要时加入追问提示以模拟真实对话。
 3. **对话设定**：T2 答案需先调用 `AnswerComposer` 生成自然流畅的双人对话（考官/考生角色、态度、语体、追问方式明确），可结合全局 `user_profile`（从用户设置中获取）与每次会话的临时设定。前端可配置考官态度（友好/严苛）、话题延展度、语法难度等；所选设定写入 `AnswerGroup.dialogue_profile`，以便区分不同 T2 答案组（例如“友好版”“严苛版”“跨文化版”）。
 4. **版本管理**：虽然 T2 结构固定，但仍遵循“答案组 + 多版本”模型；`AnswerComparator` 在判定差异时重点考察讨论内容主题、双方人设、考官态度、问答对数量/内容是否变化，以决定是否生成新答案或升级为 i+1 版本。
@@ -271,7 +267,6 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - `POST /sentences/{id}/tasks/chunks`：触发句子拆分为记忆块（可选参数：是否强制、指定范围）；成功后写入 `SentenceChunk`
    - `POST /sentences/{id}/tasks/chunk-lexemes`：基于已存在的 chunk 生成关键词 `Lexeme`，建立 `ChunkLexeme` 关联
    - `GET /sentences/{id}/chunks`：读取句子对应的 chunk+lexeme 结构，供前端展示/复习
-- `POST /answers/{id}/structure-graph` 触发可选的篇章图分析任务
 - `GET /flashcards/due`、`POST /flashcards/{id}/result`
 - `GET /settings/user-profile`、`PUT /settings/user-profile`（全局考生人设配置，供 T2 生成使用）
 - `POST /questions/fetch`：根据 URL 列表触发抓取任务，返回任务信息+结果预览

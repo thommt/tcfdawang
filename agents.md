@@ -10,7 +10,7 @@
 | **Backend Agent** | 负责 FastAPI + SQLModel 层实现、数据库迁移、服务逻辑、CSV/抓取导入、LLM 流程编排接口、任务队列（Task）执行器。 |
 | **LLM Orchestrator Agent** | 设计 LangChain Prompt、解析器、工具函数；定义各流程（评估、结构化、比较等）的输入输出契约，并提供模拟/测试用例；与 Backend 协作拆分异步任务。 |
 | **Frontend Agent** | 实现 Vue 应用（Vite + Pinia/Router），包括题目管理、学习工作台、篇章浏览、抽认卡 UI。 |
-| **Data/Infra Agent** | 确定数据库 schema 迁移、图结构存储方式、数据种子、SRS mock 实现、抓题 CLI（`scripts/fetch_questions.py`）以及部署/运行脚本（uv、Docker 示例）。 |
+| **Data/Infra Agent** | 确定数据库 schema 迁移、数据种子、SRS mock 实现、抓题 CLI（`scripts/fetch_questions.py`）以及部署/运行脚本（uv、Docker 示例）。 |
 | **QA Agent** | 编写自动化测试（Pytest、Playwright 等）、验证 API/LLM 流程、确保 CSV 导入与抽认卡逻辑正确。 |
 
 ## 2. 通用约定
@@ -23,7 +23,7 @@
    - `app/db`：SQLModel 实体、迁移。
    - `app/llm`：LangChain chains 与 prompt 模板。
    - `frontend/`：Vue 源码。
-3. **数据库图结构**：使用 `paragraph_graph_nodes` / `paragraph_graph_edges` 两张表（详见 spec）。任何 Agent 创建新的结构字段时需给出迁移脚本并更新 schema 文档。
+3. ~~**数据库图结构**~~：已取消图结构设计；如需新增结构字段仍需提供迁移脚本并更新 schema 文档。
 4. **LLM 流程 I/O**：所有 chain 都应返回结构化 JSON（Pydantic 模型），方便持久化与测试；提供 mock 实现以便无 API Key 时开发；所有 LLM 任务通过统一队列（Task）异步执行，支持重试。
 5. **错误处理**：API 返回标准化错误响应，前端显示清晰的提示；LLM 调用失败时应缓冲/重试，并允许用户查看日志；任务失败要记录可诊断信息并允许用户重新触发。
 6. **文件/编码**：所有文本与源代码文件必须为 UTF-8（无 BOM）、LF 换行；在提交前运行格式化/检查。
@@ -41,7 +41,7 @@
 ## 4. LLM 流程约束
 
 - **Answer Evaluation Loop**：必须支持多轮提示，直到用户终止；每轮输出结构化建议（改进点、示例、是否已满足要求），以异步任务形式运行，可暂停/恢复。
-- **Structure Extraction**：输出 `Paragraph[]`、`Sentence[]`，包含关系、角色标签；图关系由 Graph Builder 转换。
+- **Structure Extraction**：输出 `Paragraph[]`、`Sentence[]`，包含角色标签；不再生成图结构，可在 `extra` 中记录追问/关系信息。
 - **T2 特例**：回答需遵循“开篇→问答对→结尾”脚本；LLM Prompt 与解析器在处理 T2 时必须生成问答对结构（含追问/评论信息）。
 - **Comparator**：返回主旨相似度、结构相似度、差异摘要；若差异大于阈值，需提示创建新答案。
 - **Refined Answer Generator**：输入现有版本 + 用户最新草稿 + 评估反馈，输出 i+1 文本与亮点说明。
