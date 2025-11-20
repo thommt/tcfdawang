@@ -153,13 +153,17 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 5. 抽认卡调度可通过后台任务（批量更新 due_at、生成 new cards）运行，避免长事务。
 
 ### 5.5 T2 对话结构特例
-1. **固定架构**：每个 T2 答案版本包含：开篇（引导/问候）、若干问答对（`QuestionPrompt` + `Response` + 可选追问/评论）、结尾（告别/总结）。需在 `Paragraph` 中标注 `section_type`/`semantic_label` 以区分这些固定块，并记录对应的角色（考官/考生）、追问层级等信息。
-2. **学习流程调整**：
-   - 在首次与复习阶段，LLM 反馈需遵守对话脚本格式，确保每次迭代都包含完整的问答对。
-   - 结构拆解时，`Paragraph` 需映射至开篇、问答对、结尾等角色；通过 `semantic_label`/metadata 表示“follow-up”“clarification”等追问关系，追踪追问链路，无需额外的图结构。
-   - 抽认卡训练支持“按问答对”模式：先提示对方提问，再要求用户复述回答；必要时加入追问提示以模拟真实对话。
-3. **对话设定**：T2 答案需先调用 `AnswerComposer` 生成自然流畅的双人对话（考官/考生角色、态度、语体、追问方式明确），可结合全局 `user_profile`（从用户设置中获取）与每次会话的临时设定。前端可配置考官态度（友好/严苛）、话题延展度、语法难度等；所选设定写入 `AnswerGroup.dialogue_profile`，以便区分不同 T2 答案组（例如“友好版”“严苛版”“跨文化版”）。
-4. **版本管理**：虽然 T2 结构固定，但仍遵循“答案组 + 多版本”模型；`AnswerComparator` 在判定差异时重点考察讨论内容主题、双方人设、考官态度、问答对数量/内容是否变化，以决定是否生成新答案或升级为 i+1 版本。
+1. **固定架构**：每个 T2 答案版本包含：开篇（自然打招呼/寒暄）、若干问答对（考生提问 → 考官回答 → 可选考生跟进），以及结尾（自然告别/道谢）。`turns` 数量不少于 12 轮、最多 15 轮。
+   - **Paragraph 兼容方案**：继续使用 `Paragraph`/`Sentence` 表，但 `role_label` 约定为 `opening` / `turn_X` / `closing`，在 `extra` 字段中储存 `{ candidate_question, examiner_response, candidate_followup }` 等元数据；句子实体仍用于抽认卡。
+2. **角色设定**：
+   - **考生人设**：默认使用全局 Persona（用户在设置页输入的一段描述，例如“单亲母亲，刚到加拿大的大学生”）。除非题目要求冲突，否则所有 T2 Session/Answer 都继承该 Persona，并在 LLM Prompt 中注入。
+   - **考官人设/性格**：`AnswerGroup` 依据考官人设和性格（友好、苛刻、不配合、挑剔、话痨……化）拆分，`dialogue_profile` 中记录 `persona`、`tone` 等字段。性格枚举可扩展，前端提供下拉或自由输入。
+3. **学习流程与 Prompt 约束**：
+   - `AnswerComposer` 在 T2 模式下必须一次输出完整脚本（开场 + 12~15 轮问答 + 结尾），同时附带翻译/关键词，便于后续抽认卡直接使用。Prompt 模板需要显式声明“每轮均为考生提问 → 考官回答 →（可选）考生追问或评论”，禁止生成考官先提问的场景；并要求输出结构化 JSON，其中 turn 信息落在 `role_label`/`extra` 中。
+   - Compose/Human prompt 在 T2 场景读取两类提示：① 题目级 metadata（slug、中文标题、direction/主题标签、LLM 预先给出的脚本大纲）；② `dialogue_profile`（考官人设+性格、全局考生 persona）。首次生成时直接依据题目 metadata；再次学习时根据 Comparator 输出的 turn 匹配结果，决定沿用哪个 `dialogue_profile` 或新建 AnswerGroup。
+   - 结构拆解阶段读取 `Paragraph.role_label`/`extra` 中的 turn 信息，把脚本映射至 Sentence/Chunk/lexeme（沿用现有 Paragraph/Sentence 表），以复用抽认卡模块。
+   - 抽认卡支持“按问答对”模式：先展示考生该轮应说的提问（让用户练习复述/口述提问），确认后再展示对应的考官回答与考生跟进，并附翻译；Guided 模式按 turn 顺序推进。
+4. **版本管理 / Comparator**：依旧遵循“答案组 + 多版本”模型；`AnswerComparator` 在 T2 场景收到参数 `{ direction_plan, dialogue_profiles[], draft_transcript }`，先判断草稿属于哪个考官人设/性格（基于题目 metadata 的方向标签 + AnswerGroup 的 `dialogue_profile`），再给出 “reuse / new_group” 决策。若只是 i+1 补充，留在当前组；若考官设定/性格变更，则建议用户另存为新组（并基于新的 `dialogue_profile`），同时在 Prompt 中告知“所有问答均由考生发起”这一硬性约束。
 
 ### 5.6 后台任务与重试
 1. 所有 LLM 相关步骤（评估、AnswerComposer、结构化、翻译、拆分、比较、Gap 标注等）都生成 `Task` 记录，进入全局任务队列（可选用 Celery/RQ/BackgroundTasks 等实现），确保异步执行，不占用长连接。
@@ -336,7 +340,7 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
 以下能力仍在规划阶段，当前代码尚未覆盖：
 
 1. **CSV 导入**：补齐 `/questions/import` API 及前端上传界面，支持基于 `(type, source, year, month, suite, number)` 的批量导入/更新。
-2. **T2 对话结构升级**：引入 DialogueTurn 或专用 JSON 结构，区分开篇 / 多轮问答 / 结尾，使 T2 在数据库与学习流程中拥有独立的数据模型和抽认卡视图。
+2. **T2 对话结构升级**：在现有 `Paragraph`/`Sentence` 结构基础上落地“开篇 / turn_X / 结尾”语义，统一使用 `role_label`+`extra` 储存 `{candidate_question, examiner_response, candidate_followup}`，补齐前后端渲染、抽认卡与任务解析逻辑，确保 12~15 轮脚本在当前数据模型下完整可用。
 3. **LLM 任务合并**：将结构+翻译、chunk+lexeme 等流水线步骤合并为一到两次“大 JSON”输出，减少串行任务与失败链条，同时保留必要的重试入口。
 4. **复习判定简化**：弱化自动新建答案组的逻辑，GapHighlighter/Refine 融合反馈到生成结果中，让用户手动决定是“i+1 版本”还是“另存新组”。
 5. **抽认卡策略调整**：为 Guided 模式提供“严格掌握 vs. 按 SRS 延期”开关，兼容更灵活的记忆计划；同时保留 Manual/SRS 逻辑。
