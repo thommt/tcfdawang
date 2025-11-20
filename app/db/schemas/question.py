@@ -9,7 +9,7 @@ class Question(SQLModel, table=True):
     __tablename__ = "questions"
     __table_args__ = (
         UniqueConstraint(
-            "source", "year", "month", "suite", "number", name="uq_question_identity"
+            "type", "source", "year", "month", "suite", "number", name="uq_question_identity"
         ),
     )
 

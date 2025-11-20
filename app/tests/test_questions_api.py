@@ -228,6 +228,11 @@ def test_generate_question_metadata(client: TestClient) -> None:
     class DummyLLM:
         def generate_metadata(self, *, slug, body, question_type, tags):
             return GeneratedQuestionMetadata(title="新的标题", tags=["教育", "家庭"])
+        def plan_answer_direction(self, **kwargs):
+            return {
+                "recommended": {"title": "方向A", "summary": "摘要", "stance": "neutral", "structure": []},
+                "alternatives": [],
+            }
 
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     payload = {
@@ -246,5 +251,5 @@ def test_generate_question_metadata(client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["title"] == "新的标题"
-    assert data["tags"] == ["教育", "家庭"]
+    assert data["tags"] == ["ville", "教育", "家庭"]
     assert data["slug"] == created["slug"]

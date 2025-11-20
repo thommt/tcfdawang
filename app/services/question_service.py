@@ -51,6 +51,7 @@ class QuestionService:
             Question.month == data.month,
             Question.suite == data.suite,
             Question.number == data.number,
+            Question.type == data.type,
         )
         existing = self.session.exec(statement).first()
         if existing:
@@ -86,13 +87,13 @@ class QuestionService:
 
     def generate_metadata(self, question_id: int, llm_client: QuestionLLMClient) -> QuestionRead:
         question = self._get_question_entity(question_id)
-        tags = self._get_tags(question.id)
+        existing_tags = self._get_tags(question.id)
         try:
             metadata = llm_client.generate_metadata(
                 slug=self._build_slug(question),
                 body=question.body,
                 question_type=question.type,
-                tags=tags,
+                tags=existing_tags,
             )
         except LLMError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
@@ -115,7 +116,11 @@ class QuestionService:
         self.session.add(question)
         self.session.commit()
         self.session.refresh(question)
-        self._sync_tags(question.id, metadata.tags)
+        merged_tags = list(existing_tags)
+        for tag in metadata.tags:
+            if tag not in merged_tags:
+                merged_tags.append(tag)
+        self._sync_tags(question.id, merged_tags)
         return self._to_read_model(question)
 
     def delete_question(self, question_id: int) -> None:

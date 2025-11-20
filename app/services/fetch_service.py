@@ -71,6 +71,7 @@ class FetchTaskService:
             raise ValueError("No fetch results available for this task")
         question_service = QuestionService(self.session)
         created: List[QuestionRead] = []
+        print('raw_results:', raw_results)
         for row in raw_results:
             data = FetchedQuestion(**row)
             payload = QuestionCreate(
@@ -84,6 +85,7 @@ class FetchTaskService:
                 body=data.body,
                 tags=data.tags,
             )
+            print('payload:', payload)
             created_question = question_service.upsert_question(payload)
             created.append(created_question)
         return created
