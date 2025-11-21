@@ -134,3 +134,8 @@ class GapHighlightSchema(BaseModel):
 class RefinedAnswerSchema(BaseModel):
     text: str
     notes: List[str] = Field(default_factory=list)
+
+
+class LiveReplySchema(BaseModel):
+    reply: str = Field(..., description="考官的回答")
+    reminder: Optional[str] = Field(default=None, description="若需要提醒考生的信息")

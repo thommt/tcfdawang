@@ -18,6 +18,7 @@ from app.llm import (
     build_gap_highlight_chain,
     build_refine_answer_chain,
     build_outline_chain,
+    build_live_reply_chain,
 )
 
 
@@ -80,6 +81,11 @@ class QuestionLLMClient:
             self._outline_parser,
             self._outline_prompt,
         ) = build_outline_chain(self._llm)
+        (
+            self._live_reply_chain,
+            self._live_reply_parser,
+            self._live_reply_prompt,
+        ) = build_live_reply_chain(self._llm)
 
     def generate_metadata(
         self,
@@ -346,6 +352,56 @@ class QuestionLLMClient:
             result["_prompt_messages"] = self._serialize_messages(prompt_messages)
         except Exception as exc:  # pragma: no cover
             raise LLMError("对比现有答案组失败") from exc
+        return result
+
+    def generate_live_reply(
+        self,
+        *,
+        question_type: str,
+        question_title: str,
+        question_body: str,
+        history: list[dict],
+        candidate_query: str,
+        direction_hint: str | None = None,
+        dialogue_profile_hint: str | None = None,
+        turn_index: int,
+    ) -> dict:
+        history_lines = []
+        for item in history:
+            parts = []
+            if item.get("candidate_query"):
+                parts.append(f"考生: {item['candidate_query']}")
+            if item.get("examiner_reply"):
+                parts.append(f"考官: {item['examiner_reply']}")
+            if item.get("candidate_followup"):
+                parts.append(f"考生: {item['candidate_followup']}")
+            if parts:
+                history_lines.append(f"Turn {item.get('turn_index')}\n" + "\n".join(parts))
+        history_block = "\n\n".join(history_lines) or "（尚无历史）"
+        try:
+            prompt_messages = self._live_reply_prompt.format_messages(
+                question_type=question_type,
+                question_title=question_title,
+                question_body=question_body,
+                direction_hint=direction_hint or "无特定方向，可保持原有主线。",
+                dialogue_profile_hint=dialogue_profile_hint or "无特殊人设要求。",
+                history_block=history_block,
+                candidate_query=candidate_query,
+                turn_index=turn_index,
+                format_instructions=self._live_reply_parser.get_format_instructions(),
+            )
+            raw = self._llm.invoke(prompt_messages)
+            response_text = getattr(raw, "content", raw)
+            if isinstance(response_text, list):
+                response_text = "\n".join(
+                    item["text"] if isinstance(item, dict) and item.get("type") == "text" else str(item)
+                    for item in response_text
+                )
+            parsed = self._live_reply_parser.parse(response_text)
+            result = parsed.model_dump() if hasattr(parsed, "model_dump") else dict(parsed)
+            result["_prompt_messages"] = self._serialize_messages(prompt_messages)
+        except Exception as exc:  # pragma: no cover
+            raise LLMError("实时对话生成失败") from exc
         return result
 
     def highlight_gaps(

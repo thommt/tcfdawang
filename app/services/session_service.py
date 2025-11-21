@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import or_
@@ -20,6 +21,7 @@ from app.db.schemas import (
     ChunkLexeme,
     Lexeme,
     FlashcardProgress,
+    LiveTurn,
 )
 from app.models.answer import (
     AnswerCreate,
@@ -88,6 +90,11 @@ class SessionService:
         ).all()
         for log in conversations:
             self.session.delete(log)
+        live_turns = self.session.exec(
+            select(LiveTurn).where(LiveTurn.session_id == session_id)
+        ).all()
+        for turn in live_turns:
+            self.session.delete(turn)
         self.session.delete(session_entity)
         self.session.commit()
 
@@ -121,10 +128,173 @@ class SessionService:
         self.session.refresh(entity)
         return self._to_session_read(entity)
 
+    def start_live_session(self, session_id: int) -> SessionRead:
+        entity = self._get_session_entity(session_id)
+        question = self.session.get(Question, entity.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        if question.type != "T2":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="仅 T2 题目可使用实时对话模式")
+        progress = dict(entity.progress_state or {})
+        progress["mode"] = "live"
+        progress["phase"] = "live"
+        progress["phase_status"] = "idle"
+        progress["live_status"] = "active"
+        progress["live_turn_count"] = int(progress.get("live_turn_count") or 0)
+        progress["live_stream_token"] = progress.get("live_stream_token") or uuid4().hex
+        entity.progress_state = progress
+        entity.status = self._status_from_phase("live")
+        entity.updated_at = datetime.now(timezone.utc)
+        self.session.add(entity)
+        self.session.commit()
+        self.session.refresh(entity)
+        return self._to_session_read(entity)
+
+    def create_live_turn(
+        self,
+        session_id: int,
+        candidate_query: str,
+        candidate_followup: Optional[str] = None,
+    ) -> LiveTurn:
+        entity = self._get_session_entity(session_id)
+        self._ensure_live_mode(entity)
+        progress = dict(entity.progress_state or {})
+        next_index = int(progress.get("live_turn_count") or 0) + 1
+        turn = LiveTurn(
+            session_id=session_id,
+            turn_index=next_index,
+            candidate_query=candidate_query,
+            candidate_followup=candidate_followup,
+            meta={},
+        )
+        self.session.add(turn)
+        progress["live_turn_count"] = next_index
+        progress["live_status"] = "active"
+        progress["phase"] = "live"
+        progress["phase_status"] = "running"
+        entity.progress_state = progress
+        entity.updated_at = datetime.now(timezone.utc)
+        self.session.add(entity)
+        self.session.commit()
+        self.session.refresh(turn)
+        return turn
+
+    def record_live_reply(
+        self,
+        turn_id: int,
+        reply_text: str,
+        meta: Optional[dict] = None,
+    ) -> LiveTurn:
+        turn = self.session.get(LiveTurn, turn_id)
+        if not turn:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live turn not found")
+        turn.examiner_reply = reply_text
+        if meta:
+            merged = dict(turn.meta or {})
+            merged.update(meta)
+            turn.meta = merged
+        self.session.add(turn)
+        session_entity = self._get_session_entity(turn.session_id)
+        progress = dict(session_entity.progress_state or {})
+        progress["phase_status"] = "idle"
+        progress["live_status"] = "active"
+        session_entity.progress_state = progress
+        session_entity.updated_at = datetime.now(timezone.utc)
+        self.session.add(session_entity)
+        self.session.commit()
+        self.session.refresh(turn)
+        return turn
+
+    def mark_live_turn_error(self, turn_id: int, message: str) -> None:
+        turn = self.session.get(LiveTurn, turn_id)
+        if not turn:
+            return
+        meta = dict(turn.meta or {})
+        meta["error"] = message
+        turn.meta = meta
+        self.session.add(turn)
+        session_entity = self._get_session_entity(turn.session_id)
+        progress = dict(session_entity.progress_state or {})
+        progress["phase_status"] = "failed"
+        progress["phase_error"] = message
+        session_entity.progress_state = progress
+        session_entity.updated_at = datetime.now(timezone.utc)
+        self.session.add(session_entity)
+        self.session.commit()
+
+    def update_live_status(self, session_id: int, status_value: str) -> None:
+        entity = self._get_session_entity(session_id)
+        progress = dict(entity.progress_state or {})
+        progress["live_status"] = status_value
+        entity.progress_state = progress
+        entity.updated_at = datetime.now(timezone.utc)
+        self.session.add(entity)
+        self.session.commit()
+
+    def list_live_turns(self, session_id: int) -> List[LiveTurn]:
+        statement = (
+            select(LiveTurn)
+            .where(LiveTurn.session_id == session_id)
+            .order_by(LiveTurn.turn_index)
+        )
+        return self.session.exec(statement).all()
+
+    def prepare_live_finalize_payload(self, session_id: int, *, force: bool = False) -> SessionFinalizePayload:
+        entity = self._get_session_entity(session_id)
+        question = self.session.get(Question, entity.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        self._ensure_live_mode(entity, require_active=False)
+        turns = self.list_live_turns(session_id)
+        min_turns = 1 if force else 12
+        if len(turns) < min_turns:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"实时对话至少需要 {min_turns} 轮才能完成，目前仅 {len(turns)} 轮",
+            )
+        transcript = self._render_live_transcript(turns)
+        progress = dict(entity.progress_state or {})
+        title = self._title_with_direction(question.title, progress.get("selected_direction_descriptor"))
+        payload = SessionFinalizePayload(
+            answer_group_id=progress.get("selected_answer_group_id"),
+            group_title=None,
+            group_descriptor=None,
+            dialogue_profile=None,
+            answer_title=title,
+            answer_text=transcript,
+        )
+        return payload
+
+    def _render_live_transcript(self, turns: List[LiveTurn]) -> str:
+        sections: List[str] = []
+        for turn in turns:
+            prefix = f"Tour {turn.turn_index}"
+            question_text = turn.candidate_query.strip()
+            reply_text = (turn.examiner_reply or "").strip()
+            followup = (turn.candidate_followup or "").strip()
+            block_lines = []
+            if question_text:
+                block_lines.append(f"考生: {question_text}")
+            if reply_text:
+                block_lines.append(f"考官: {reply_text}")
+            if followup:
+                block_lines.append(f"考生: {followup}")
+            if block_lines:
+                sections.append(f"{prefix}\n" + "\n".join(block_lines))
+        return "\n\n".join(sections)
+
+    def _ensure_live_mode(self, entity: SessionSchema, *, require_active: bool = True) -> None:
+        progress = entity.progress_state or {}
+        if progress.get("mode") != "live":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该 Session 未开启实时对话模式")
+        if require_active and progress.get("live_status") == "completed":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="实时对话已结束")
+
     def finalize_session(self, session_id: int, payload: SessionFinalizePayload) -> SessionRead:
         session_entity = self._get_session_entity(session_id)
-        phase = (session_entity.progress_state or {}).get("phase", "draft")
-        if phase not in {"await_finalize", "await_new_group"}:
+        progress_state = dict(session_entity.progress_state or {})
+        phase = progress_state.get("phase", "draft")
+        if not (progress_state.get("mode") == "live" and phase == "live") and phase not in {"await_finalize", "await_new_group"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前阶段不可完成 Session")
         question = self.session.get(Question, session_entity.question_id)
         if not question:

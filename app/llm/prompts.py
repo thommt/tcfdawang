@@ -141,6 +141,25 @@ COMPARATOR_HUMAN_PROMPT = (
     "考生最新草稿:\n{answer_draft}"
 )
 
+LIVE_REPLY_SYSTEM_PROMPT = (
+    "你是 TCF Canada Tâche 2 的考官，请在模拟口试中根据考生的问题做出自然、真诚且 B2 难度的口语回答。"
+    "保持同一考官人设、语体与态度，可适度引用前文信息，让对话连贯。"
+    "回答需包含 2-4 句法语，必要时可在括号中补充非常简短的中文提示。"
+    "若轮次 >=12，可温和提醒考生可以结束；到第 15 轮必须明确建议收尾。"
+    "输出 JSON，字段 reply(法语回答) 与 reminder(可选提示)。{format_instructions}"
+)
+
+LIVE_REPLY_HUMAN_PROMPT = (
+    "题目类型: {question_type}\n"
+    "题目标题: {question_title}\n"
+    "题目内容: {question_body}\n"
+    "方向提示:\n{direction_hint}\n\n"
+    "对话设定:\n{dialogue_profile_hint}\n\n"
+    "当前轮次: {turn_index}\n"
+    "最近对话摘要:\n{history_block}\n\n"
+    "考生本轮提问:\n{candidate_query}"
+)
+
 GAP_HIGHLIGHT_SYSTEM_PROMPT = (
     "你是 TCF Canada 的口语评阅老师。请对比考生草稿与参考答案，指出缺失或薄弱的内容、语法词汇问题，并给出改进建议。"
     "输出 JSON，包含 coverage_score(0-1)、missing_points(字符串列表)、grammar_notes(字符串列表)、suggestions(字符串列表)。{format_instructions}"

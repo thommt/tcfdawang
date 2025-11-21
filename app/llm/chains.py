@@ -27,6 +27,8 @@ from app.llm.prompts import (
     REFINE_ANSWER_HUMAN_PROMPT,
     OUTLINE_SYSTEM_PROMPT,
     OUTLINE_HUMAN_PROMPT,
+    LIVE_REPLY_SYSTEM_PROMPT,
+    LIVE_REPLY_HUMAN_PROMPT,
 )
 from app.llm.schemas import (
     QuestionMetadataSchema,
@@ -40,6 +42,7 @@ from app.llm.schemas import (
     GapHighlightSchema,
     RefinedAnswerSchema,
     AnswerOutlinePlanSchema,
+    LiveReplySchema,
 )
 
 
@@ -170,6 +173,18 @@ def build_refine_answer_chain(llm: BaseChatModel):
         [
             ("system", REFINE_ANSWER_SYSTEM_PROMPT),
             ("human", REFINE_ANSWER_HUMAN_PROMPT),
+        ]
+    )
+    chain = prompt | llm | parser
+    return chain, parser, prompt
+
+
+def build_live_reply_chain(llm: BaseChatModel):
+    parser = JsonOutputParser(pydantic_object=LiveReplySchema)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", LIVE_REPLY_SYSTEM_PROMPT),
+            ("human", LIVE_REPLY_HUMAN_PROMPT),
         ]
     )
     chain = prompt | llm | parser

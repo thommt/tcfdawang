@@ -19,6 +19,7 @@ from app.db.schemas import (
     SentenceChunk,
     ChunkLexeme,
     FlashcardProgress,
+    LiveTurn,
 )
 from app.models.fetch_task import TaskRead
 from app.models.flashcard import FlashcardProgressCreate
@@ -273,6 +274,64 @@ class TaskService:
         self.session.commit()
         self.session.refresh(task)
         return TaskRead.model_validate(task)
+
+    def generate_live_reply(self, session_id: int, turn_id: int) -> dict:
+        session_entity = self.session.get(SessionSchema, session_id)
+        if not session_entity:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        question = self.session.get(Question, session_entity.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        if question.type != "T2":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="仅 T2 题目支持实时对话")
+        turn = self.session.get(LiveTurn, turn_id)
+        if not turn:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live turn not found")
+        history_statement = (
+            select(LiveTurn)
+            .where(LiveTurn.session_id == session_id)
+            .order_by(LiveTurn.turn_index)
+        )
+        history_rows = self.session.exec(history_statement).all()
+        tail_history = history_rows[-5:]
+        history_payload = [
+            {
+                "turn_index": item.turn_index,
+                "candidate_query": item.candidate_query,
+                "examiner_reply": item.examiner_reply,
+                "candidate_followup": item.candidate_followup,
+            }
+            for item in tail_history
+        ]
+        progress_state = dict(session_entity.progress_state or {})
+        outline_plan = progress_state.get("outline_plan") or self._get_question_direction_plan(question)
+        direction_hint = self._build_direction_hint(
+            outline_plan,
+            progress_state.get("selected_direction_descriptor"),
+            session_entity.answer_id is None,
+        )
+        dialogue_hint = self._build_dialogue_profile_hint(question, session_entity, progress_state)
+        try:
+            reply_result = self.llm_client.generate_live_reply(
+                question_type=question.type,
+                question_title=question.title,
+                question_body=question.body,
+                history=history_payload,
+                candidate_query=turn.candidate_query,
+                direction_hint=direction_hint,
+                dialogue_profile_hint=dialogue_hint,
+                turn_index=turn.turn_index,
+            )
+        except LLMError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        reply_text = (reply_result or {}).get("reply", "").strip()
+        if not reply_text:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="LLM 未返回任何回复")
+        meta_payload = dict(reply_result or {})
+        meta_payload.pop("reply", None)
+        meta = {"live_result": meta_payload}
+        self.session.refresh(turn)
+        return {"text": reply_text, "meta": meta}
 
     def run_answer_compare_task(self, session_id: int) -> TaskRead:
         session_entity = self.session.get(SessionSchema, session_id)

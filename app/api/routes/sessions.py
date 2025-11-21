@@ -1,6 +1,8 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi.concurrency import run_in_threadpool
+from sqlmodel import Session as DBSession
 
 from app.api.dependencies import get_session, get_llm_client
 from app.models.answer import (
@@ -18,6 +20,7 @@ from app.models.answer import (
 from app.models.fetch_task import TaskRead
 from app.services.session_service import SessionService
 from app.services.task_service import TaskService
+from app.db.base import get_engine
 
 
 def get_session_service(db=Depends(get_session)) -> SessionService:
@@ -106,6 +109,98 @@ def finalize_session(
         except HTTPException:
             pass
     return result
+
+
+@sessions_router.post("/{session_id}/live/start", response_model=SessionRead)
+def start_live_session(
+    session_id: int,
+    service: SessionService = Depends(get_session_service),
+) -> SessionRead:
+    return service.start_live_session(session_id)
+
+
+@sessions_router.post("/{session_id}/live/finalize", response_model=SessionRead)
+def finalize_live_session(
+    session_id: int,
+    force: bool = False,
+    service: SessionService = Depends(get_session_service),
+    task_service: TaskService = Depends(get_task_service),
+) -> SessionRead:
+    payload = service.prepare_live_finalize_payload(session_id, force=force)
+    result = service.finalize_session(session_id, payload)
+    service.update_live_status(session_id, "completed")
+    if result.answer_id:
+        try:
+            task_service.run_structure_pipeline_task(result.id, result.answer_id)
+        except HTTPException:
+            pass
+    return result
+
+
+@sessions_router.websocket("/live/{session_id}/stream")
+async def live_session_stream(websocket: WebSocket, session_id: int) -> None:
+    await websocket.accept()
+    try:
+        llm_client = get_llm_client()
+    except HTTPException as exc:
+        await websocket.send_json({"type": "error", "message": exc.detail})
+        await websocket.close(code=4400)
+        return
+    engine = get_engine()
+    with DBSession(engine) as db:
+        service = SessionService(db)
+        task_service = TaskService(db, llm_client)
+        try:
+            entity = service._get_session_entity(session_id)
+            service._ensure_live_mode(entity, require_active=False)  # type: ignore[attr-defined]
+        except HTTPException as exc:
+            await websocket.send_json({"type": "error", "message": exc.detail})
+            await websocket.close(code=4400)
+            return
+        try:
+            while True:
+                message = await websocket.receive_json()
+                msg_type = message.get("type")
+                if msg_type == "candidate_turn":
+                    text = (message.get("text") or "").strip()
+                    followup = (message.get("followup") or "").strip() or None
+                    if not text:
+                        await websocket.send_json({"type": "error", "message": "请输入问题文本"})
+                        continue
+                    turn = service.create_live_turn(session_id, text, followup)
+                    await websocket.send_json({"type": "ack", "turn": turn.turn_index})
+                    try:
+                        reply = await run_in_threadpool(task_service.generate_live_reply, session_id, turn.id)
+                        result_text = reply.get("text", "")
+                        meta = reply.get("meta")
+                        service.record_live_reply(turn.id, result_text, meta)
+                        await websocket.send_json(
+                            {"type": "examiner_reply", "turn": turn.turn_index, "text": result_text}
+                        )
+                        if turn.turn_index >= 15:
+                            await websocket.send_json(
+                                {"type": "warning", "message": "已达到 15 轮，请收尾或结束本次练习。"}
+                            )
+                        elif turn.turn_index >= 12:
+                            await websocket.send_json(
+                                {"type": "notice", "message": "已经完成 12 轮，可以随时结束或继续。"}
+                            )
+                    except HTTPException as exc:
+                        service.mark_live_turn_error(turn.id, exc.detail if isinstance(exc.detail, str) else str(exc))
+                        await websocket.send_json({"type": "error", "message": exc.detail})
+                        continue
+                elif msg_type == "stop":
+                    service.update_live_status(session_id, "stopped")
+                    await websocket.send_json({"type": "stopped"})
+                else:
+                    await websocket.send_json({"type": "error", "message": "未知消息类型"})
+        except WebSocketDisconnect:
+            service.update_live_status(session_id, "stopped")
+        except Exception as exc:  # pragma: no cover
+            await websocket.send_json({"type": "error", "message": str(exc)})
+            service.update_live_status(session_id, "stopped")
+        finally:
+            await websocket.close()
 
 
 answer_group_router = APIRouter(prefix="/answer-groups", tags=["answer-groups"])

@@ -165,6 +165,48 @@ Vue SPA  →  FastAPI (REST/WS)  →  Service 层  →  Repository 层  →  SQL
    - 抽认卡支持“按问答对”模式：先展示考生该轮应说的提问（让用户练习复述/口述提问），确认后再展示对应的考官回答与考生跟进，并附翻译；Guided 模式按 turn 顺序推进。
 4. **版本管理 / Comparator**：依旧遵循“答案组 + 多版本”模型；`AnswerComparator` 在 T2 场景收到参数 `{ direction_plan, dialogue_profiles[], draft_transcript }`，先判断草稿属于哪个考官人设/性格（基于题目 metadata 的方向标签 + AnswerGroup 的 `dialogue_profile`），再给出 “reuse / new_group” 决策。若只是 i+1 补充，留在当前组；若考官设定/性格变更，则建议用户另存为新组（并基于新的 `dialogue_profile`），同时在 Prompt 中告知“所有问答均由考生发起”这一硬性约束。
 
+#### 5.5.1 T2 Live 会话（流式问答模式）
+为贴近真实考场体验，提供“实时对话”模式：考生实时输入问题，系统扮演考官并流式输出回答，整个 Session 结束后自动整理成标准 Answer。
+
+1. **核心目标**  
+   - 支持 12~15 轮“考生问 → 考官答 → （可选）考生点评/追问”的实时交互。  
+   - 任意时刻都可终止：达到轮次上限或考生手动停止（LLM 不主动判定“问题耗尽”），第 12 轮起提示“可结束”，第 15 轮强提醒需收尾。  
+   - 会话完成后，将 `turn_log` 转换为 Paragraph/Sentence，并继续结构/翻译/抽认卡流水线。
+
+2. **数据模型**  
+   - `LiveTurn`（新表）：`id, session_id, turn_index, candidate_query, examiner_reply, candidate_followup, meta(json), created_at`。  
+   - Session `progress_state` 新增字段：`mode="live"`, `live_turn_count`, `live_status`（active/stopped/completed）、`live_stream_token`（用于恢复）、`selected_answer_group_id` 等。  
+   - 现有 `Paragraph.extra` 在 Live 模式下由 turn_log 自动填充，无需 LLM 再次拆分对话角色。
+
+3. **服务架构**  
+   - `POST /sessions/{id}/live/start`：确保 Question= T2，初始化 `live_turn_count=0`，并返回 WebSocket/SSE 连接地址。  
+   - WebSocket `/sessions/{id}/live/stream`：  
+     - 客户端发送 `{type:"candidate_turn", text:"…", followup?:string}`；  
+     - 服务器推送 `{"type":"examiner_reply_stream","chunk":"…", "turn":n}` 流式 token；完成后再发送 `{"type":"examiner_reply_done","text":"…","turn":n}`。  
+     - 支持 `{"type":"stop"}`：服务器立即终止当前 LLM 调用，标记 `live_status=stopped`。  
+   - 超时 / 降级：若单轮 LLM 超过 12 秒未返回，自动切换到轻量模型或返回一条通用提示，并允许用户继续下一轮。
+
+4. **Prompt 与上下文**  
+   - Live 回复使用独立 prompt：注入题干、全局 persona、`dialogue_profile`、最近 3~4 轮 turn 及轮次计数，强调“保持考官身份＋口语连贯”。  
+   - 每轮只传输必要历史，减少 token 延迟；结束后再调用 Compose/Structure，将全量 turn 作为输入，生成最终 Answer 文本（可由现有 compose prompt 执行“整理与润色”）。
+
+5. **Session 完成流程**  
+   - 当 `live_turn_count >= 12` 且用户点击“结束”（或达到 15 轮被强制提醒确认结束）时，调用 `POST /sessions/{id}/live/finalize`：  
+     1. 将 `LiveTurn` 列表渲染为连贯脚本（开场 + turn 序列 + 结尾）。  
+     2. 写入临时 Answer 草稿并触发结构/翻译/Chunk/Lexeme pipeline。  
+     3. 进入 `phase="learning"`，后续步骤与普通 Session 一致。  
+   - 若会话提前终止（少于 12 轮），提示用户继续或确认“强制结束”；强制结束将标记 `phase="aborted"` 并允许重启 Live Session。
+
+6. **前端交互要求**  
+   - SessionWorkspace 检测到 Question.type=T2 且 mode=live 时，切换为聊天 UI：右侧显示 turn 列表，中间输入框，底部提供“结束/撤回/停止响应”按钮。  
+   - WebSocket 消息实时渲染：LLM 回复 token 到达即在 UI 中滚动显示，完成后锁定该 turn。  
+   - 显示轮次计数与剩余轮数提示；当进入结构/学习阶段时，切换回现有的任务面板/抽认卡视图。
+
+7. **失败恢复**  
+   - 任何网络/LLM 错误时，将错误记录到 `LiveTurn.meta` 和 Session `progress_state.phase_error`，允许用户重试同一轮（保留 candidate 提问）。  
+   - WebSocket 断开时客户端可重新连接并携带 `live_stream_token`，服务器从最新 turn 继续。
+
+该模式与原先“一次性 compose”并存：用户可在 Session 创建时选择“Live 对话”或“自动生成”，现有后续流水线保持兼容。
 ### 5.6 后台任务与重试
 1. 所有 LLM 相关步骤（评估、AnswerComposer、结构化、翻译、拆分、比较、Gap 标注等）都生成 `Task` 记录，进入全局任务队列（可选用 Celery/RQ/BackgroundTasks 等实现），确保异步执行，不占用长连接。
 2. 前端需提供“任务中心”与 Answer 详情页的任务面板，展示当前 Answer/Session 的任务列表、状态、进度、最近日志。

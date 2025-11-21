@@ -18,6 +18,7 @@ from app.db.schemas import (
     FlashcardProgress,
     Session as SessionSchema,
     Question,
+    LiveTurn,
 )
 
 
@@ -115,6 +116,9 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
                 "_prompt_messages": [],
             }
 
+        def generate_live_reply(self, **kwargs):
+            return {"reply": "Je comprends votre situation.", "reminder": None}
+
     app.dependency_overrides[get_llm_client] = lambda: DummyLLM()
     app.dependency_overrides[get_session] = override_get_session
     test_client = TestClient(app)
@@ -198,7 +202,45 @@ def test_create_answer_group_and_answer(client: TestClient, session: Session) ->
 
     fetched_group = client.get(f"/answer-groups/{group['id']}")
     assert fetched_group.status_code == 200
-    fetched_answer = client.get(f"/answers/{answer['id']}")
+
+
+def test_start_live_session(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
+    resp = client.post("/sessions", json={"question_id": question_id})
+    assert resp.status_code == 201
+    session_id = resp.json()["id"]
+
+    start_resp = client.post(f"/sessions/{session_id}/live/start")
+    assert start_resp.status_code == 200
+    data = start_resp.json()
+    assert data["progress_state"]["mode"] == "live"
+    assert data["progress_state"]["live_status"] == "active"
+
+
+def test_finalize_live_session_requires_turns(client: TestClient, session: Session) -> None:
+    question_id = _create_question(client, session)
+    resp = client.post("/sessions", json={"question_id": question_id})
+    session_id = resp.json()["id"]
+    client.post(f"/sessions/{session_id}/live/start")
+
+    insufficient = client.post(f"/sessions/{session_id}/live/finalize")
+    assert insufficient.status_code == 400
+
+    for idx in range(12):
+        turn = LiveTurn(
+            session_id=session_id,
+            turn_index=idx + 1,
+            candidate_query=f"问题 {idx+1}",
+            examiner_reply=f"回答 {idx+1}",
+        )
+        session.add(turn)
+    session.commit()
+
+    finalize_resp = client.post(f"/sessions/{session_id}/live/finalize")
+    assert finalize_resp.status_code == 200, finalize_resp.text
+    payload = finalize_resp.json()
+    assert payload["answer_id"] is not None
+    fetched_answer = client.get(f"/answers/{payload['answer_id']}")
     assert fetched_answer.status_code == 200
 
 

@@ -5,6 +5,7 @@ from .conversation import LLMConversation
 from .paragraph import Paragraph, Sentence
 from .chunk import Lexeme, SentenceChunk, ChunkLexeme
 from .flashcard import FlashcardProgress
+from .live_turn import LiveTurn
 
 __all__ = [
     "Question",
@@ -20,4 +21,5 @@ __all__ = [
     "SentenceChunk",
     "ChunkLexeme",
     "FlashcardProgress",
+    "LiveTurn",
 ]
