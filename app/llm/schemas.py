@@ -45,6 +45,7 @@ class StructureSentenceSchema(BaseModel):
 class StructureParagraphSchema(BaseModel):
     role: Optional[str] = None
     summary: Optional[str] = None
+    extra: dict = Field(default_factory=dict, description="额外信息，如 T2 对话的提问/回答内容")
     sentences: List[StructureSentenceSchema] = Field(default_factory=list)
 
 

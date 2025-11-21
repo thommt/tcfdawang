@@ -129,6 +129,7 @@ class SessionService:
         question = self.session.get(Question, session_entity.question_id)
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+        progress_state = dict(session_entity.progress_state or {})
         if payload.answer_group_id:
             group = self.session.get(AnswerGroupSchema, payload.answer_group_id)
             if not group:
@@ -145,7 +146,7 @@ class SessionService:
             self.session.add(group)
             self.session.commit()
             self.session.refresh(group)
-        progress_state = dict(session_entity.progress_state or {})
+        progress_state["selected_answer_group_id"] = group.id
         selected_direction = progress_state.get("selected_direction_descriptor")
         if selected_direction and (not group.direction_descriptor):
             group.direction_descriptor = selected_direction
@@ -295,13 +296,19 @@ class SessionService:
         if not question:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
         self._ensure_question_metadata_ready(question)
+        progress_state = {
+            "review_source_answer_id": answer.id,
+            "phase": "draft",
+            "phase_status": "idle",
+            "selected_answer_group_id": group.id,
+        }
         entity = SessionSchema(
             question_id=question.id,
             answer_id=answer.id,
             session_type="review",
             status="draft",
             user_answer_draft=answer.text,
-            progress_state={"review_source_answer_id": answer.id, "phase": "draft", "phase_status": "idle"},
+            progress_state=progress_state,
         )
         self.session.add(entity)
         self.session.commit()

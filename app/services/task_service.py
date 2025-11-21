@@ -197,6 +197,7 @@ class TaskService:
                 progress_state.get("selected_direction_descriptor"),
                 session_entity.answer_id is None,
             )
+            dialogue_hint = self._build_dialogue_profile_hint(question, session_entity, progress_state)
             compose_result = self.llm_client.compose_answer(
                 question_type=question.type,
                 question_title=question.title,
@@ -204,6 +205,7 @@ class TaskService:
                 answer_draft=session_entity.user_answer_draft or "",
                 eval_summary=eval_summary,
                 direction_hint=direction_hint,
+                dialogue_profile_hint=dialogue_hint,
             )
             prompt_messages = compose_result.pop("_prompt_messages", None)
             saved_at = datetime.now(timezone.utc)
@@ -290,6 +292,7 @@ class TaskService:
                 {
                     "answer_group_id": group.id,
                     "direction_descriptor": group.direction_descriptor or f"方向#{group.id}",
+                    "dialogue_profile": group.dialogue_profile or {},
                 }
             )
         task = Task(type="compare", status="pending", payload={"session_id": session_id}, session_id=session_id)
@@ -339,7 +342,10 @@ class TaskService:
                 progress_state["direction_match"] = direction_match
                 progress_state["selected_direction_descriptor"] = direction_match
             decision = compare_payload.get("decision")
+            matched_group_id = compare_payload.get("matched_answer_group_id")
             if decision == "reuse":
+                if matched_group_id:
+                    progress_state["selected_answer_group_id"] = matched_group_id
                 progress_state["phase"] = "gap_highlight"
                 if not direction_match and compare_payload.get("matched_answer_group_id"):
                     matched_group = self.session.get(
@@ -348,6 +354,7 @@ class TaskService:
                     if matched_group and matched_group.direction_descriptor:
                         progress_state["selected_direction_descriptor"] = matched_group.direction_descriptor
             elif decision == "new_group":
+                progress_state.pop("selected_answer_group_id", None)
                 progress_state["phase"] = "await_new_group"
             session_entity.progress_state = progress_state
             session_entity.updated_at = datetime.now(timezone.utc)
@@ -806,6 +813,66 @@ class TaskService:
             return self._format_outline_plan(plan)
         return "尚未指定方向，可结合题意自行确定。"
 
+    def _build_dialogue_profile_hint(
+        self,
+        question: Question,
+        session_entity: SessionSchema,
+        progress_state: dict,
+    ) -> str:
+        if question.type != "T2":
+            return "题目为 T3/T4，非对话场景，可忽略考官人设提示。"
+        lines = [
+            "T2 对话要求：考生开场寒暄，自行提出问题，考官作答，必要时考生跟进；始终保持同一考官人设与语气。",
+            "确保 12~15 轮问答，并在结尾自然告别。",
+        ]
+        persona_hint = (progress_state or {}).get("candidate_persona_hint")
+        if persona_hint:
+            lines.append(f"考生人设：{persona_hint}")
+        else:
+            lines.append("考生人设：默认为正在备考 TCF Canada 的考生，可结合题干补充背景。")
+        selected_group_id = progress_state.get("selected_answer_group_id")
+        if not selected_group_id and session_entity.answer_id:
+            answer = self.session.get(AnswerSchema, session_entity.answer_id)
+            if answer:
+                selected_group_id = answer.answer_group_id
+        if selected_group_id:
+            group = self.session.get(AnswerGroupSchema, selected_group_id)
+            if group:
+                lines.append(f"沿用答案组 #{group.id}《{group.title}》的考官设定：")
+                descriptor = group.direction_descriptor or group.descriptor
+                if descriptor:
+                    lines.append(f"- 方向/主题：{descriptor}")
+                profile = group.dialogue_profile or {}
+                if profile:
+                    lines.append("- 考官人设：")
+                    for key, value in profile.items():
+                        lines.append(f"  • {key}: {value}")
+                else:
+                    lines.append("- 考官人设：此前未指定，保持与已有答案一致的语气。")
+        else:
+            lines.append("当前没有可参考的答案组，请自拟考官身份/态度并在整段对话中保持一致。")
+        return "\n".join(lines)
+
+    def _normalize_t2_role(
+        self,
+        role_label: str | None,
+        para_extra: dict,
+        index: int,
+        total: int,
+    ) -> str:
+        if role_label:
+            normalized = role_label.lower()
+            if normalized in {"opening", "closing"} or normalized.startswith("turn_"):
+                return normalized
+        turn_index = para_extra.get("turn_index")
+        if isinstance(turn_index, int) and turn_index > 0:
+            return f"turn_{turn_index}"
+        if index == 1:
+            return "opening"
+        if index == total:
+            return "closing"
+        return f"turn_{index - 1}"
+
     def _get_latest_task_summary(self, session_id: int, task_type: str) -> dict | None:
         statement = (
             select(Task)
@@ -847,6 +914,7 @@ class TaskService:
             if not isinstance(structure, dict):
                 raise LLMError("LLM 没有返回结构化结果")
             paragraphs_payload = structure.get("paragraphs") or []
+            total_paragraphs = len(paragraphs_payload)
             with self.session.begin_nested():
                 existing_paragraphs = self.session.exec(
                     select(Paragraph).where(Paragraph.answer_id == answer_id)
@@ -860,22 +928,34 @@ class TaskService:
                     self.session.delete(paragraph)
 
                 for idx, para in enumerate(paragraphs_payload, start=1):
+                    para_extra = para.get("extra")
+                    if not isinstance(para_extra, dict):
+                        para_extra = {}
+                    role_label = para.get("role")
+                    if question.type == "T2":
+                        role_label = self._normalize_t2_role(
+                            role_label,
+                            para_extra,
+                            idx,
+                            total_paragraphs,
+                        )
                     paragraph = Paragraph(
                         answer_id=answer_id,
                         order_index=idx,
-                        role_label=para.get("role"),
+                        role_label=role_label,
                         summary=para.get("summary"),
-                        extra={},
+                        extra=para_extra,
                     )
                     self.session.add(paragraph)
                     self.session.flush()
                     for s_idx, sentence_data in enumerate(para.get("sentences", []), start=1):
+                        translation_en = sentence_data.get("translation_en") or sentence_data.get("translation")
                         sentence = Sentence(
                             paragraph_id=paragraph.id,
                             order_index=s_idx,
                             text=sentence_data.get("text", ""),
-                            translation_en=None,
-                            translation_zh=None,
+                            translation_en=translation_en,
+                            translation_zh=sentence_data.get("translation_zh"),
                             difficulty=sentence_data.get("difficulty"),
                             extra={},
                         )

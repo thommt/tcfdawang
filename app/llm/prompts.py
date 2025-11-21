@@ -24,9 +24,10 @@ EVAL_HUMAN_PROMPT = (
 
 COMPOSE_SYSTEM_PROMPT = (
     "你是TCF Canada 口语题目的写作助手，请根据题目生成一份完整的法语答案。"
-    "若题型为 T2，应输出自然的双人对话（考官/考生），保持角色一致。"
-    "若题型为 T3，请生成一篇适合口头陈述的议论文，整体难度维持 B2 左右，正文（仅计法语单词）需在 275~325 词之间。"
-    "当提供方向提示或结构建议时，请遵循该方向；如无提示，则依据题意选择最合适的立场与段落结构，并确保逻辑连贯。"
+    "若题型为 T2（考生发问、考官回应），需包括自然的开场寒暄与告别，在主体部分提供 12~15 轮“考生提问 → 考官回答 → （可选）考生追问/点评”，"
+    "并保持同一考官人设、语气与细节深度；每轮必须由考生先开口，可在句末以括号补充翻译或关键词提示，方便后续拆解。"
+    "若题型为 T3，请生成一篇适合口头陈述的议论文，整体难度维持 B2 左右，正文（仅计法语单词）需在 275~325 词之间，且包含清晰的引言、分论点与结论。"
+    "当提供方向提示、结构建议或对话设定时，务必遵循；如无提示，则依据题意选择最合适的立场与段落结构，并确保逻辑连贯。"
     "输出 JSON，包含 title(中文精简标题) 与 text(法语完整答案)。{format_instructions}"
 )
 
@@ -35,6 +36,7 @@ COMPOSE_HUMAN_PROMPT = (
     "题目标题: {question_title}\n"
     "题目内容: {question_body}\n"
     "方向提示或题意分析（如有）:\n{direction_hint}\n\n"
+    "对话/语体设定（T2 生效）:\n{dialogue_profile_hint}\n\n"
     "考生草稿与评估反馈:\n{eval_summary}\n\n"
     "提示/草稿:\n{answer_draft}"
 )
@@ -56,6 +58,9 @@ OUTLINE_HUMAN_PROMPT = (
 STRUCTURE_SYSTEM_PROMPT = (
     "你是TCF Canada 答案结构分析助手，请把给定的答案拆成若干段落，"
     "每个段落提供角色(role)和一句话 summary，并列出句子以及可选的中文翻译。"
+    "若题型为 T2，请将开场/结尾/每轮问答分别视作段落："
+    "role 需使用 opening / turn_X / closing，extra 中写入 turn_index 以及 candidate_question、examiner_response、candidate_followup（如无可省略），"
+    "sentences 则按照“考生台词 → 考官台词 → 考生追问”的顺序列出。"
     "{format_instructions}"
 )
 
@@ -121,8 +126,9 @@ CHUNK_LEXEME_HUMAN_PROMPT = (
 )
 
 COMPARATOR_SYSTEM_PROMPT = (
-    "你是 TCF Canada 口语题的评估官。收到考生最新草稿、题意方向候选以及已有答案组的方向信息，"
+    "你是 TCF Canada 口语题的评估官。收到考生最新草稿、题意方向候选以及已有答案组的方向/对话设定，"
     "请判断草稿最接近哪一种方向：若该方向已有答案组则返回其 ID 并输出差异；若没有匹配方向或差异极大，应建议创建新答案组并说明理由。"
+    "若 question_type 为 T2，请特别核对草稿是否遵守“考生提问→考官回应→（可选）考生跟进”的逻辑，并结合 dialogue_profile 评估考官态度/语体是否一致。"
     "输出 JSON，字段：decision(new_group/reuse)、matched_answer_group_id(若 reuse)、direction_descriptor(草稿最匹配的方向)、reason(中文说明)、differences(字符串列表)。{format_instructions}"
 )
 
@@ -131,7 +137,7 @@ COMPARATOR_HUMAN_PROMPT = (
     "题目标题: {question_title}\n"
     "题目内容: {question_body}\n"
     "题意方向候选:\n{direction_plan}\n\n"
-    "已有答案组（含方向）：\n{existing_groups}\n\n"
+    "已有答案组（含方向/对话设定）：\n{existing_groups}\n\n"
     "考生最新草稿:\n{answer_draft}"
 )
 

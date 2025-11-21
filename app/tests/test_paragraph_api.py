@@ -151,7 +151,7 @@ def test_run_structure_task(client: TestClient, session: Session) -> None:
         select(Paragraph).where(Paragraph.answer_id == answer_id).order_by(Paragraph.order_index)
     ).all()
     assert len(paragraphs) == 1
-    assert paragraphs[0].role_label == "body"
+    assert paragraphs[0].role_label == "opening"
     assert paragraphs[0].summary == "LLM summary"
 
     sentences = session.exec(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import List, Optional
 
 from langchain_openai import ChatOpenAI
@@ -235,14 +236,18 @@ class QuestionLLMClient:
         answer_draft: str,
         eval_summary: str | None = None,
         direction_hint: str | None = None,
+        dialogue_profile_hint: str | None = None,
     ) -> dict:
         try:
+            eval_block = eval_summary or "暂无评估反馈"
+            dialogue_block = dialogue_profile_hint or "暂无对话或语体设定，可依题意自拟。"
             prompt_messages = self._compose_prompt.format_messages(
                 question_type=question_type,
                 question_title=question_title,
                 question_body=question_body,
                 direction_hint=direction_hint or "尚未指定方向，可按题意自行发挥。",
-                eval_summary=eval_summary or "暂无评估反馈",
+                dialogue_profile_hint=dialogue_block,
+                eval_summary=eval_block,
                 answer_draft=answer_draft,
                 format_instructions=self._compose_parser.get_format_instructions(),
             )
@@ -303,10 +308,19 @@ class QuestionLLMClient:
         direction_plan: str | None = None,
         existing_groups: list[dict] | None = None,
     ) -> dict:
-        groups_block = "\n".join(
-            f"- group_id={item.get('answer_group_id')}: {item.get('direction_descriptor') or '未标注'}"
-            for item in (existing_groups or [])
-        ) or "（尚无答案组）"
+        group_lines = []
+        for item in (existing_groups or []):
+            descriptor = item.get("direction_descriptor") or "未标注"
+            group_id = item.get("answer_group_id")
+            profile = item.get("dialogue_profile") or {}
+            profile_text = (
+                json.dumps(profile, ensure_ascii=False)
+                if isinstance(profile, (dict, list))
+                else str(profile) if profile
+                else "未提供"
+            )
+            group_lines.append(f"- group_id={group_id}: 方向={descriptor}；对话设定={profile_text}")
+        groups_block = "\n".join(group_lines) or "（尚无答案组）"
         try:
             prompt_messages = self._answer_comparator_prompt.format_messages(
                 question_type=question_type,
