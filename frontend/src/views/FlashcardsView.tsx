@@ -1,4 +1,4 @@
-import { defineComponent, ref, computed, onMounted, watch } from 'vue';
+import { defineComponent, ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
@@ -41,6 +41,8 @@ export default defineComponent({
     const userAnswer = ref('');
     const showAnswer = ref(false);
     const showSentenceDetails = ref(false);
+    const inputRef = ref<HTMLInputElement | null>(null);
+    const availableVoices = ref<SpeechSynthesisVoice[]>([]);
 
     const currentCard = computed(() => cards.value[currentIndex.value] ?? null);
     const cardCount = computed(() => cards.value.length);
@@ -64,6 +66,8 @@ export default defineComponent({
           });
         }
         currentIndex.value = 0;
+        await nextTick();
+        inputRef.value?.focus();
       } catch (err) {
         error.value = '无法加载抽认卡列表';
         console.error(err);
@@ -100,7 +104,14 @@ export default defineComponent({
         console.error(err);
       } finally {
         submitting.value = false;
+        await nextTick();
+        inputRef.value?.focus();
       }
+    }
+
+    function loadVoices() {
+      if (typeof window === 'undefined' || !window.speechSynthesis) return;
+      availableVoices.value = window.speechSynthesis.getVoices();
     }
 
     function pickTranslation(
@@ -116,6 +127,14 @@ export default defineComponent({
     const promptText = computed(() => {
       const card = currentCard.value;
       if (!card) return '暂无提示';
+      const typeLabel =
+        card.card.entity_type === 'sentence'
+          ? '【句子卡片】'
+          : card.card.entity_type === 'chunk'
+          ? '【记忆块卡片】'
+          : card.card.entity_type === 'lexeme'
+          ? '【词块卡片】'
+          : '【复习卡片】';
       const prefer = preferredLanguage.value;
       const fallback = prefer === 'zh' ? 'en' : 'zh';
       const sources: Array<Record<'translation_en' | 'translation_zh', string | null | undefined>> = [];
@@ -174,17 +193,77 @@ export default defineComponent({
         return null;
       };
 
-      return (
-        choose(prefer) ||
-        choose(fallback as PromptLanguage) ||
-        '暂无可用提示，请直接凭记忆输入法语原文。'
-      );
+      const core =
+        choose(prefer) || choose(fallback as PromptLanguage) || '暂无可用提示，请直接凭记忆输入法语原文。';
+      return `${typeLabel}${core}`;
     });
 
     function confirmReveal() {
       if (!currentCard.value) return;
       showAnswer.value = true;
-      showSentenceDetails.value = false;
+      const text = getCardFrenchText(currentCard.value);
+      if (text) {
+        speakText(text);
+      }
+      if (currentCard.value.sentence) {
+        showSentenceDetails.value = true;
+      } else {
+        showSentenceDetails.value = false;
+      }
+    }
+
+    function getCardFrenchText(card: FlashcardStudyCard): string | null {
+      if (card.card.entity_type === 'sentence' && card.sentence?.text) {
+        return card.sentence.text;
+      }
+      if (card.card.entity_type === 'chunk' && card.chunk?.text) {
+        return card.chunk.text;
+      }
+      if (card.card.entity_type === 'lexeme' && card.lexeme?.headword) {
+        return card.lexeme.headword;
+      }
+      return null;
+    }
+
+    function speakText(text: string) {
+      if (!text || typeof window === 'undefined' || !window.speechSynthesis) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voice =
+        availableVoices.value.find((item) => item.lang?.toLowerCase().startsWith('fr')) ?? null;
+      if (voice) {
+        utterance.voice = voice;
+        utterance.lang = voice.lang;
+      } else {
+        utterance.lang = 'fr-FR';
+      }
+      utterance.rate = 0.95;
+      try {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn('无法播放朗读', err);
+      }
+    }
+
+    function handleGlobalShortcut(event: KeyboardEvent) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (!showAnswer.value) {
+          confirmReveal();
+        }
+        return;
+      }
+      if (!showAnswer.value) return;
+      if (event.key === '1') {
+        event.preventDefault();
+        handleReview(1);
+      } else if (event.key === '2') {
+        event.preventDefault();
+        handleReview(3);
+      } else if (event.key === '3') {
+        event.preventDefault();
+        handleReview(5);
+      }
     }
 
     function renderSentenceCard() {
@@ -196,6 +275,9 @@ export default defineComponent({
           <h3>句子卡片</h3>
           <button type="button" class="toggle-btn" onClick={() => (showSentenceDetails.value = !showSentenceDetails.value)}>
             {showSentenceDetails.value ? '隐藏句子' : '查看句子'}
+          </button>
+          <button type="button" class="tts-btn" onClick={() => speakText(sentence.text || '')}>
+            重播法语朗读
           </button>
           {showSentenceDetails.value && (
             <>
@@ -227,6 +309,9 @@ export default defineComponent({
           <p class="card__text">
             {lexeme.headword} {lexeme.sense_label && <small>({lexeme.sense_label})</small>}
           </p>
+          <button type="button" class="tts-btn" onClick={() => speakText(lexeme.headword || '')}>
+            播放法语朗读
+          </button>
           {lexeme.gloss && <p class="card__translation">释义：{lexeme.gloss}</p>}
           <p class="card__translation">英文：{lexeme.translation_en ?? '—'}</p>
           <p class="card__translation">中文：{lexeme.translation_zh ?? '—'}</p>
@@ -252,6 +337,9 @@ export default defineComponent({
           <p class="card__text">
             #{chunk.order_index} · {chunk.text}
           </p>
+          <button type="button" class="tts-btn" onClick={() => speakText(chunk.text || '')}>
+            播放法语朗读
+          </button>
           <p class="card__translation">英文：{chunk.translation_en ?? '—'}</p>
           <p class="card__translation">中文：{chunk.translation_zh ?? '—'}</p>
           <p class="card__meta">
@@ -310,6 +398,21 @@ export default defineComponent({
     onMounted(() => {
       syncFilterFromRoute();
       loadCards();
+      window.addEventListener('keydown', handleGlobalShortcut);
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        loadVoices();
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+      nextTick(() => {
+        inputRef.value?.focus();
+      });
+    });
+
+    onUnmounted(() => {
+      window.removeEventListener('keydown', handleGlobalShortcut);
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
     });
 
     watch(
@@ -404,6 +507,7 @@ export default defineComponent({
                   userAnswer.value = (event.target as HTMLInputElement).value;
                 }}
                 disabled={showAnswer.value}
+                ref={inputRef}
               />
               {!showAnswer.value && (
                 <button type="button" onClick={confirmReveal} class="prompt__confirm" disabled={!currentCard.value}>
