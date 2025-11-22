@@ -32,7 +32,7 @@ class QuestionLLMClient:
         api_key: str,
         model: Optional[str] = None,
         base_url: str = "https://api.openai.com/v1",
-        timeout: float = 30.0,
+        timeout: float = 60.0,
     ) -> None:
         self.api_key = api_key
         self.model = model or "gpt-4o-mini"

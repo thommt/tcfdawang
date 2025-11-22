@@ -1,5 +1,11 @@
 import apiClient from './http';
-import type { Session, SessionPayload, SessionFinalizePayload, SessionHistory } from '../types/session';
+import type {
+  Session,
+  SessionPayload,
+  SessionFinalizePayload,
+  SessionHistory,
+  LiveTurn,
+} from '../types/session';
 import type { FetchTask } from '../types/question';
 
 const resource = '/sessions';
@@ -73,5 +79,20 @@ export async function fetchSessionHistory(sessionId: number): Promise<SessionHis
 
 export async function createReviewSession(answerId: number): Promise<Session> {
   const response = await apiClient.post<Session>(`/answers/${answerId}/sessions`, {});
+  return response.data;
+}
+
+export async function startLiveSession(sessionId: number): Promise<Session> {
+  const response = await apiClient.post<Session>(`${resource}/${sessionId}/live/start`, {});
+  return response.data;
+}
+
+export async function finalizeLiveSession(sessionId: number, force = false): Promise<Session> {
+  const response = await apiClient.post<Session>(`${resource}/${sessionId}/live/finalize`, {}, { params: force ? { force: true } : {} });
+  return response.data;
+}
+
+export async function fetchLiveTurns(sessionId: number): Promise<LiveTurn[]> {
+  const response = await apiClient.get<LiveTurn[]>(`${resource}/${sessionId}/live/turns`);
   return response.data;
 }

@@ -1,14 +1,15 @@
-import { defineComponent, ref, onMounted, watch, computed } from 'vue';
+import { defineComponent, ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useSessionStore } from '../stores/sessions';
 import { useQuestionStore } from '../stores/questions';
-import type { Session, SessionFinalizePayload } from '../types/session';
+import type { Session, SessionFinalizePayload, LiveTurn } from '../types/session';
 import type { Answer, AnswerGroup } from '../types/answer';
 import type { FlashcardStudyCard } from '../types/flashcard';
 import { fetchQuestionById } from '../api/questions';
 import { fetchAnswerById } from '../api/answers';
 import { fetchAnswerGroups } from '../api/answerGroups';
 import { fetchDueFlashcards, reviewFlashcard } from '../api/flashcards';
+import { fetchLiveTurns } from '../api/sessions';
 import type { Question } from '../types/question';
 
 export default defineComponent({
@@ -31,6 +32,9 @@ export default defineComponent({
     const showFinalize = ref(false);
     const answerTitle = ref('');
     const answerText = ref('');
+    const finalizeMode = ref<'reuse' | 'new'>('reuse');
+    const selectedGroupId = ref<number | null>(null);
+    const newGroupTitle = ref('');
     const deletingSession = ref(false);
     const deleteError = ref('');
     const reviewScoreOptions = [
@@ -47,6 +51,17 @@ export default defineComponent({
     const learningMessage = ref('');
     const learningSubmitting = ref(false);
     const learningIndex = ref(0);
+    const startLiveLoading = ref(false);
+    const liveFinalizing = ref(false);
+    const liveTurns = ref<LiveTurn[]>([]);
+    const liveInput = ref('');
+    const liveFollowup = ref('');
+    const liveSocket = ref<WebSocket | null>(null);
+    const liveConnecting = ref(false);
+    const liveConnected = ref(false);
+    const liveConnectionError = ref('');
+    const liveMessages = ref<{ id: number; type: 'notice' | 'warning' | 'error'; text: string; ts: number }[]>([]);
+    const liveSending = ref(false);
 
     const session = computed<Session | null>(() => sessionStore.currentSession);
     const sessionCompleted = computed(() => session.value?.status === 'completed');
@@ -67,6 +82,24 @@ export default defineComponent({
       const recommended = question.value?.direction_plan?.recommended?.title;
       return recommended && recommended.trim().length > 0 ? recommended.trim() : undefined;
     });
+
+    const isLiveMode = computed(() => {
+      const mode = session.value?.progress_state?.mode as string | undefined;
+      return mode === 'live';
+    });
+    const liveStatus = computed(() => {
+      const raw = session.value?.progress_state?.live_status as string | undefined;
+      return raw || 'idle';
+    });
+    const liveTurnCount = computed(() => {
+      const fromState = session.value?.progress_state?.live_turn_count as number | undefined;
+      if (typeof fromState === 'number') {
+        return fromState;
+      }
+      return liveTurns.value.length;
+    });
+    const questionIsT2 = computed(() => question.value?.type === 'T2');
+    const canStartLive = computed(() => questionIsT2.value && !isLiveMode.value && !sessionCompleted.value);
 
     const buildTitleWithDirection = (base: string, direction?: string) => {
       const trimmedDirection = direction?.trim();
@@ -190,12 +223,210 @@ export default defineComponent({
       await sessionStore.loadSessionHistory(sessionId);
     }
 
+    async function loadLiveTurnHistory(targetSessionId?: number) {
+      const targetId = targetSessionId ?? session.value?.id;
+      if (!targetId || !isLiveMode.value) {
+        liveTurns.value = [];
+        return;
+      }
+      try {
+        liveTurns.value = await fetchLiveTurns(targetId);
+      } catch (err) {
+        console.error('无法加载实时对话记录', err);
+        liveConnectionError.value = '加载实时对话记录失败';
+      }
+    }
+
+    function buildLiveWebSocketUrl(targetSessionId: number): string {
+      const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
+      const path = `${apiBase}/sessions/live/${targetSessionId}/stream`;
+      const url = new URL(path, window.location.origin);
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      return url.toString();
+    }
+
+    function connectLiveStream(force = false) {
+      if (!session.value) return;
+      if (liveSocket.value) {
+        if (!force && (liveConnecting.value || liveConnected.value)) {
+          return;
+        }
+        liveSocket.value.close();
+      }
+      const url = buildLiveWebSocketUrl(session.value.id);
+      try {
+        liveConnecting.value = true;
+        liveConnectionError.value = '';
+        const socket = new WebSocket(url);
+        liveSocket.value = socket;
+        socket.onopen = () => {
+          liveConnecting.value = false;
+          liveConnected.value = true;
+          liveConnectionError.value = '';
+        };
+        socket.onclose = () => {
+          if (liveSocket.value === socket) {
+            liveSocket.value = null;
+          }
+          liveConnecting.value = false;
+          liveConnected.value = false;
+        };
+        socket.onerror = () => {
+          liveConnectionError.value = '实时连接异常，请尝试重连。';
+        };
+        socket.onmessage = async (event: MessageEvent) => {
+          try {
+            const payload = JSON.parse(event.data as string);
+            if (payload.type === 'ack') {
+              liveSending.value = false;
+              appendLiveMessage('notice', `已发送第 ${payload.turn} 轮提问。`);
+              await loadLiveTurnHistory(session.value?.id);
+            } else if (payload.type === 'examiner_reply') {
+              appendLiveMessage('notice', `考官已回复第 ${payload.turn} 轮。`);
+              await loadLiveTurnHistory(session.value?.id);
+            } else if (payload.type === 'warning') {
+              appendLiveMessage('warning', payload.message);
+            } else if (payload.type === 'notice') {
+              appendLiveMessage('notice', payload.message);
+            } else if (payload.type === 'error') {
+              appendLiveMessage('error', payload.message);
+              liveSending.value = false;
+            } else if (payload.type === 'stopped') {
+              liveConnected.value = false;
+              appendLiveMessage('notice', '实时对话已暂停。');
+            }
+          } catch (err) {
+            console.error('解析实时消息失败', err);
+          }
+        };
+      } catch (err) {
+        console.error('无法建立实时连接', err);
+        liveConnecting.value = false;
+        liveConnectionError.value = '无法建立实时连接';
+      }
+    }
+
+    function disconnectLiveStream() {
+      if (liveSocket.value) {
+        try {
+          liveSocket.value.close();
+        } catch (err) {
+          console.warn('关闭实时连接失败', err);
+        }
+      }
+      liveSocket.value = null;
+      liveConnecting.value = false;
+      liveConnected.value = false;
+    }
+
+    async function startLiveSessionFlow() {
+      if (!session.value) return;
+      startLiveLoading.value = true;
+      try {
+        await sessionStore.startLiveSession(session.value.id);
+        await sessionStore.loadSession(session.value.id);
+        await loadLiveTurnHistory(session.value.id);
+        connectLiveStream(true);
+        appendLiveMessage('notice', '实时对话已启动，请输入开场白。');
+      } catch (err) {
+        console.error('启动实时对话失败', err);
+        liveConnectionError.value = '启动实时对话失败';
+      } finally {
+        startLiveLoading.value = false;
+      }
+    }
+
+    function appendLiveMessage(type: 'notice' | 'warning' | 'error', text: string) {
+      const ts = Date.now();
+      const id = ts + Math.random();
+      liveMessages.value = [{ id, type, text, ts }, ...liveMessages.value].slice(0, 10);
+    }
+
+    async function sendLiveTurn() {
+      if (!session.value || !isLiveMode.value) return;
+      const text = liveInput.value.trim();
+      if (!text || liveSending.value) {
+        return;
+      }
+      if (!liveSocket.value || liveSocket.value.readyState !== WebSocket.OPEN) {
+        connectLiveStream(true);
+        console.log('liveSocket.value...', liveSocket.value, liveSocket.value.readyState);
+        if (!liveSocket.value || liveSocket.value.readyState !== WebSocket.OPEN) {
+          liveConnectionError.value = '实时连接未就绪，请稍后重试。';
+          return;
+        }
+      }
+      liveSending.value = true;
+      liveConnectionError.value = '';
+      const payload: Record<string, unknown> = {
+        type: 'candidate_turn',
+        text,
+      };
+      if (liveFollowup.value.trim()) {
+        payload.followup = liveFollowup.value.trim();
+      }
+      try {
+        liveSocket.value?.send(JSON.stringify(payload));
+        liveInput.value = '';
+        liveFollowup.value = '';
+      } catch (err) {
+        console.error('发送实时对话失败', err);
+        liveConnectionError.value = '发送失败，请检查网络';
+        liveSending.value = false;
+      }
+    }
+
+    function stopLiveSession() {
+      if (!liveSocket.value || liveSocket.value.readyState !== WebSocket.OPEN) return;
+      liveSocket.value.send(JSON.stringify({ type: 'stop' }));
+      liveConnected.value = false;
+    }
+
+    async function finalizeLiveSessionFlow(force = false) {
+      if (!session.value) return;
+      liveFinalizing.value = true;
+      try {
+        await sessionStore.finalizeLiveSession(session.value.id, force);
+        await sessionStore.loadSession(session.value.id);
+        await loadLiveTurnHistory(session.value.id);
+        disconnectLiveStream();
+      } catch (err) {
+        console.error('整理实时答案失败', err);
+        liveConnectionError.value = '整理实时答案失败';
+      } finally {
+        liveFinalizing.value = false;
+      }
+    }
+
     watch(
       () => sessionStore.currentSession,
       (value) => {
         if (value) {
           draft.value = value.user_answer_draft ?? '';
           loadReviewSource(reviewSourceId.value);
+        }
+      }
+    );
+
+    watch(
+      [() => session.value?.id, isLiveMode],
+      async ([sessionKey, liveMode]) => {
+        if (!sessionKey || !liveMode) {
+          liveTurns.value = [];
+          disconnectLiveStream();
+          return;
+        }
+        await loadLiveTurnHistory(sessionKey);
+        connectLiveStream();
+      },
+      { immediate: true }
+    );
+
+    watch(
+      () => session.value?.progress_state?.live_stream_token,
+      () => {
+        if (isLiveMode.value) {
+          connectLiveStream(true);
         }
       }
     );
@@ -237,6 +468,25 @@ export default defineComponent({
         savedAt: compose.saved_at as string | undefined,
         raw: compose,
       };
+    });
+
+    const canSendLiveQuestion = computed(() => {
+      if (!isLiveMode.value) return false;
+      if (liveSending.value) return false;
+      return liveInput.value.trim().length > 0 && (!liveSocket.value || liveSocket.value.readyState === WebSocket.OPEN);
+    });
+
+    const canFinalizeLiveSession = computed(() => {
+      return (
+        isLiveMode.value &&
+        liveTurnCount.value >= 12 &&
+        !liveFinalizing.value &&
+        !phaseIsRunning.value
+      );
+    });
+
+    const canForceFinalizeLive = computed(() => {
+      return isLiveMode.value && liveTurnCount.value > 0 && !liveFinalizing.value;
     });
 
     async function saveDraft() {
@@ -566,6 +816,9 @@ export default defineComponent({
     onMounted(() => {
       loadData();
     });
+    onUnmounted(() => {
+      disconnectLiveStream();
+    });
 
     return () => (
       <section class="session-workspace">
@@ -596,6 +849,108 @@ export default defineComponent({
               <small>仅未关联答案的 Session 支持删除</small>
             )}
           </div>
+        )}
+        {questionIsT2.value && (
+          <section class="live-panel">
+            <header>
+              <h3>实时对话模式（T2）</h3>
+              <p>
+                当前轮次：{liveTurnCount.value} / 15 · 连接状态：{liveConnected.value ? '已连接' : liveConnecting.value ? '连接中' : '未连接'} · 流程：
+                {liveStatus.value}
+              </p>
+              {liveConnectionError.value && <p class="error">{liveConnectionError.value}</p>}
+            </header>
+            {!isLiveMode.value ? (
+              <div class="live-start">
+                <p>实时模式可模拟考场中考生提问、考官即时回应。完成 12~15 轮后即可整理成正式答案。</p>
+                <button type="button" onClick={startLiveSessionFlow} disabled={startLiveLoading.value || !session.value}>
+                  {startLiveLoading.value ? '启动中...' : '开始实时对话'}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div class="live-actions">
+                  <button type="button" onClick={() => connectLiveStream(true)}>
+                    重连
+                  </button>
+                  <button type="button" onClick={stopLiveSession} disabled={!liveConnected.value}>
+                    暂停连接
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => finalizeLiveSessionFlow(false)}
+                    disabled={!canFinalizeLiveSession.value}
+                  >
+                    {liveFinalizing.value ? '整理中...' : '整理成答案'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => finalizeLiveSessionFlow(true)}
+                    disabled={!canForceFinalizeLive.value}
+                  >
+                    {liveFinalizing.value ? '处理中...' : '强制结束'}
+                  </button>
+                </div>
+                <div class="live-messages">
+                  <strong>系统提醒</strong>
+                  {liveMessages.value.length === 0 ? (
+                    <p>暂无提醒。</p>
+                  ) : (
+                    <ul>
+                      {liveMessages.value.map((msg) => (
+                        <li key={msg.id} class={msg.type}>
+                          [{new Date(msg.ts).toLocaleTimeString()}] {msg.text}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div class="live-log">
+                  {liveTurns.value.length === 0 ? (
+                    <p>尚无对话记录，输入首句开场白开始练习。</p>
+                  ) : (
+                    liveTurns.value.map((turn) => (
+                      <article key={turn.id ?? `${turn.turn_index}-${turn.created_at}`} class="live-turn">
+                        <header>第 {turn.turn_index} 轮</header>
+                        <p class="candidate-line">考生：{turn.candidate_query || '（未记录）'}</p>
+                        {turn.examiner_reply ? (
+                          <p class="examiner-line">考官：{turn.examiner_reply}</p>
+                        ) : (
+                          <p class="pending">考官回复生成中...</p>
+                        )}
+                        {turn.candidate_followup && <p class="candidate-line">考生补充：{turn.candidate_followup}</p>}
+                        <small>{new Date(turn.created_at).toLocaleString()}</small>
+                      </article>
+                    ))
+                  )}
+                </div>
+                <div class="live-input">
+                  <label>
+                    <span>本轮提问</span>
+                    <textarea
+                      rows={3}
+                      value={liveInput.value}
+                      onInput={(e) => (liveInput.value = (e.target as HTMLTextAreaElement).value)}
+                      placeholder="请输入考生要提的问题或陈述"
+                    ></textarea>
+                  </label>
+                  <label>
+                    <span>（可选）追问/备注</span>
+                    <input
+                      value={liveFollowup.value}
+                      onInput={(e) => (liveFollowup.value = (e.target as HTMLInputElement).value)}
+                      placeholder="若需要在本轮补一句，可以写在这里"
+                    />
+                  </label>
+                  <div class="live-input-actions">
+                    <button type="button" onClick={sendLiveTurn} disabled={!canSendLiveQuestion.value}>
+                      {liveSending.value ? '发送中...' : '发送提问'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
         )}
         {isReviewSession.value && (
           <section class="review-context">
@@ -982,6 +1337,3 @@ export default defineComponent({
     );
   },
 });
-    const finalizeMode = ref<'reuse' | 'new'>('reuse');
-    const selectedGroupId = ref<number | null>(null);
-    const newGroupTitle = ref('');

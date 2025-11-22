@@ -55,3 +55,14 @@ export interface SessionHistory {
   tasks: FetchTask[];
   conversations: LLMConversationLog[];
 }
+
+export interface LiveTurn {
+  id: number;
+  session_id: number;
+  turn_index: number;
+  candidate_query: string;
+  examiner_reply?: string | null;
+  candidate_followup?: string | null;
+  meta?: Record<string, unknown>;
+  created_at: string;
+}

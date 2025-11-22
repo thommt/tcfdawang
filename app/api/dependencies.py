@@ -27,5 +27,15 @@ def get_llm_client() -> QuestionLLMClient:
     if not api_key:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="未配置 OPENAI_API_KEY")
     model = os.getenv("OPENAI_MODEL") or None
+    timeout = 0.0
+    timeout_str = os.getenv("OPENAI_TIMEOUT") or os.getenv("LLM_TIMEOUT")
+    if timeout_str:
+        try:
+            timeout = float(timeout_str)
+        except ValueError:
+            timeout = 0.0
+    kwargs = {}
+    if timeout > 0:
+        kwargs["timeout"] = timeout
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    return QuestionLLMClient(api_key=api_key, model=model, base_url=base_url)
+    return QuestionLLMClient(api_key=api_key, model=model, base_url=base_url, **kwargs)

@@ -16,6 +16,8 @@ import {
   createReviewSession as createReviewSessionApi,
   completeLearning,
   deleteSession as deleteSessionApi,
+  startLiveSession as startLiveSessionApi,
+  finalizeLiveSession as finalizeLiveSessionApi,
 } from '../api/sessions';
 
 interface State {
@@ -144,6 +146,19 @@ export const useSessionStore = defineStore('sessions', {
     },
     async completeLearning(sessionId: number) {
       const session = await completeLearning(sessionId);
+      this.currentSession = session;
+      this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
+      await this.loadSessionHistory(sessionId);
+      return session;
+    },
+    async startLiveSession(sessionId: number) {
+      const session = await startLiveSessionApi(sessionId);
+      this.currentSession = session;
+      this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
+      return session;
+    },
+    async finalizeLiveSession(sessionId: number, force = false) {
+      const session = await finalizeLiveSessionApi(sessionId, force);
       this.currentSession = session;
       this.sessions = this.sessions.map((item) => (item.id === sessionId ? session : item));
       await this.loadSessionHistory(sessionId);

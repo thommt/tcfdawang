@@ -18,6 +18,7 @@ from app.models.answer import (
     SessionHistoryRead,
 )
 from app.models.fetch_task import TaskRead
+from app.models.live import LiveTurnRead
 from app.services.session_service import SessionService
 from app.services.task_service import TaskService
 from app.db.base import get_engine
@@ -137,6 +138,14 @@ def finalize_live_session(
     return result
 
 
+@sessions_router.get("/{session_id}/live/turns", response_model=List[LiveTurnRead])
+def list_live_turns(
+    session_id: int,
+    service: SessionService = Depends(get_session_service),
+) -> List[LiveTurnRead]:
+    return service.list_live_turns(session_id)
+
+
 @sessions_router.websocket("/live/{session_id}/stream")
 async def live_session_stream(websocket: WebSocket, session_id: int) -> None:
     await websocket.accept()
@@ -168,14 +177,19 @@ async def live_session_stream(websocket: WebSocket, session_id: int) -> None:
                         await websocket.send_json({"type": "error", "message": "请输入问题文本"})
                         continue
                     turn = service.create_live_turn(session_id, text, followup)
-                    await websocket.send_json({"type": "ack", "turn": turn.turn_index})
+                    await websocket.send_json({"type": "ack", "turn": turn.turn_index, "turn_id": turn.id})
                     try:
                         reply = await run_in_threadpool(task_service.generate_live_reply, session_id, turn.id)
                         result_text = reply.get("text", "")
                         meta = reply.get("meta")
                         service.record_live_reply(turn.id, result_text, meta)
                         await websocket.send_json(
-                            {"type": "examiner_reply", "turn": turn.turn_index, "text": result_text}
+                            {
+                                "type": "examiner_reply",
+                                "turn": turn.turn_index,
+                                "turn_id": turn.id,
+                                "text": result_text,
+                            }
                         )
                         if turn.turn_index >= 15:
                             await websocket.send_json(

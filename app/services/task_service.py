@@ -974,6 +974,7 @@ class TaskService:
                 raise LLMError("LLM 没有返回结构化结果")
             paragraphs_payload = structure.get("paragraphs") or []
             total_paragraphs = len(paragraphs_payload)
+            print("Structuring answer into", total_paragraphs, "paragraphs")
             with self.session.begin_nested():
                 existing_paragraphs = self.session.exec(
                     select(Paragraph).where(Paragraph.answer_id == answer_id)
@@ -985,7 +986,7 @@ class TaskService:
                     for sentence in sentences:
                         self.session.delete(sentence)
                     self.session.delete(paragraph)
-
+                print("Deleted", len(existing_paragraphs), "existing paragraphs for answer", answer_id)
                 for idx, para in enumerate(paragraphs_payload, start=1):
                     para_extra = para.get("extra")
                     if not isinstance(para_extra, dict):
@@ -1038,6 +1039,7 @@ class TaskService:
             self.session.commit()
             self.session.refresh(task)
         except LLMError as exc:
+            print("LLMError in structure task:", exc)
             task.status = "failed"
             task.error_message = str(exc)
             task.updated_at = datetime.now(timezone.utc)
@@ -1045,6 +1047,7 @@ class TaskService:
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover
+            print("Exception in structure task:", exc)
             self.session.rollback()
             task.status = "failed"
             task.error_message = str(exc)
