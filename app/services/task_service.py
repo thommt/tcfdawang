@@ -5,6 +5,7 @@ from typing import Any, Set
 
 from fastapi import HTTPException, status
 from sqlmodel import Session as DBSession, select
+import logging
 
 from app.db.schemas import (
     Task,
@@ -25,6 +26,9 @@ from app.models.fetch_task import TaskRead
 from app.models.flashcard import FlashcardProgressCreate
 from app.services.llm_service import QuestionLLMClient, LLMError
 from app.services.flashcard_service import FlashcardService
+
+
+logger = logging.getLogger(__name__)
 
 
 class TaskService:
@@ -1039,7 +1043,15 @@ class TaskService:
             self.session.commit()
             self.session.refresh(task)
         except LLMError as exc:
-            print("LLMError in structure task:", exc)
+            logger.error(
+                "structure_task.llm_error",
+                extra={
+                    "task_id": task.id,
+                    "answer_id": answer_id,
+                    "question_id": question.id,
+                    "error": str(exc),
+                },
+            )
             task.status = "failed"
             task.error_message = str(exc)
             task.updated_at = datetime.now(timezone.utc)
@@ -1047,7 +1059,10 @@ class TaskService:
             self.session.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover
-            print("Exception in structure task:", exc)
+            logger.exception(
+                "structure_task.unexpected_error",
+                extra={"task_id": task.id, "answer_id": answer_id, "question_id": question.id},
+            )
             self.session.rollback()
             task.status = "failed"
             task.error_message = str(exc)

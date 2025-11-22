@@ -124,17 +124,18 @@ export default defineComponent({
       return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
     }
 
+    const cardTypeLabel = computed(() => {
+      const card = currentCard.value;
+      if (!card) return '未知卡片';
+      if (card.card.entity_type === 'sentence') return '句子卡片';
+      if (card.card.entity_type === 'chunk') return '记忆块卡片';
+      if (card.card.entity_type === 'lexeme') return '词块卡片';
+      return '复习卡片';
+    });
+
     const promptText = computed(() => {
       const card = currentCard.value;
       if (!card) return '暂无提示';
-      const typeLabel =
-        card.card.entity_type === 'sentence'
-          ? '【句子卡片】'
-          : card.card.entity_type === 'chunk'
-          ? '【记忆块卡片】'
-          : card.card.entity_type === 'lexeme'
-          ? '【词块卡片】'
-          : '【复习卡片】';
       const prefer = preferredLanguage.value;
       const fallback = prefer === 'zh' ? 'en' : 'zh';
       const sources: Array<Record<'translation_en' | 'translation_zh', string | null | undefined>> = [];
@@ -193,9 +194,11 @@ export default defineComponent({
         return null;
       };
 
-      const core =
-        choose(prefer) || choose(fallback as PromptLanguage) || '暂无可用提示，请直接凭记忆输入法语原文。';
-      return `${typeLabel}${core}`;
+      return (
+        choose(prefer) ||
+        choose(fallback as PromptLanguage) ||
+        '暂无可用提示，请直接凭记忆输入法语原文。'
+      );
     });
 
     function confirmReveal() {
@@ -483,6 +486,9 @@ export default defineComponent({
               <span>下次复习：{new Date(currentCard.value.card.due_at).toLocaleString()}</span>
             </div>
             <div class="card__prompt">
+              <div class="prompt__type">
+                当前卡片类型：{cardTypeLabel.value}
+              </div>
               <div class="prompt__controls">
                 <span>提示语言：</span>
                 {promptLanguageOptions.map((option) => (

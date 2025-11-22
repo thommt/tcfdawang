@@ -57,7 +57,7 @@ OUTLINE_HUMAN_PROMPT = (
 
 STRUCTURE_SYSTEM_PROMPT = (
     "你是TCF Canada 答案结构分析助手，请把给定的答案拆成若干段落，"
-    "每个段落提供角色(role)和一句话 summary，并列出句子以及可选的中文翻译。"
+    "每个段落提供角色(role)和一句话 summary，并列出句子（无需返回翻译内容，后续会单独处理翻译）。"
     "若题型为 T2，请将开场/结尾/每轮问答分别视作段落："
     "role 需使用 opening / turn_X / closing，extra 中写入 turn_index 以及 candidate_question、examiner_response、candidate_followup（如无可省略），"
     "sentences 则按照“考生台词 → 考官台词 → 考生追问”的顺序列出。"
